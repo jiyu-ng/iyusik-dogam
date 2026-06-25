@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { supabase, ROW_ID } from "./supabase";
 
 // ── 상태 정의 ──────────────────────────────────────────────
 const STATUS = {
@@ -74,22 +75,61 @@ export default function App() {
   const [cooking, setCooking] = useState(false);
   const [recipeErr, setRecipeErr] = useState("");
 
-  // 데이터 로드 (localStorage)
+  // 데이터 로드: 1) localStorage 즉시 표시  2) 클라우드(Supabase)와 동기화
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        setRecords(d.records || {});
-        setCustom(d.custom || []);
+    (async () => {
+      // 1) 로컬 캐시 먼저 (오프라인에서도 즉시 보이게)
+      let local = null;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) local = JSON.parse(raw);
+      } catch (e) {}
+      if (local) {
+        setRecords(local.records || {});
+        setCustom(local.custom || []);
       }
-    } catch (e) {}
-    setLoaded(true);
+
+      // 2) 클라우드 조회
+      try {
+        const { data, error } = await supabase
+          .from("tracker_state")
+          .select("data")
+          .eq("id", ROW_ID)
+          .maybeSingle();
+
+        const cloud = !error && data ? data.data : null;
+        const cloudHasData =
+          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length);
+
+        if (cloudHasData) {
+          // 클라우드 데이터로 갱신 + 로컬 캐시 업데이트
+          setRecords(cloud.records || {});
+          setCustom(cloud.custom || []);
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloud)); } catch (e) {}
+        } else if (local) {
+          // 클라우드는 비었는데 로컬에 기록이 있으면 → 클라우드로 올림(최초 백업)
+          await supabase
+            .from("tracker_state")
+            .upsert({ id: ROW_ID, data: local, updated_at: new Date().toISOString() });
+        }
+      } catch (e) {
+        // 네트워크 실패 시 로컬 데이터로 계속 동작
+        console.error("cloud load failed", e);
+      }
+      setLoaded(true);
+    })();
   }, []);
 
   const persist = (nr, nc) => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ records: nr, custom: nc })); }
+    const payload = { records: nr, custom: nc };
+    // 1) 로컬 즉시 저장
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
     catch (e) { console.error(e); }
+    // 2) 클라우드 저장 (fire-and-forget)
+    supabase
+      .from("tracker_state")
+      .upsert({ id: ROW_ID, data: payload, updated_at: new Date().toISOString() })
+      .then(({ error }) => { if (error) console.error("cloud save failed", error); });
   };
 
   const allItems = useMemo(() => {
