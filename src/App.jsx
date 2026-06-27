@@ -163,6 +163,11 @@ export default function App() {
     const nc = [...custom, { id: "c_" + Date.now(), name, emoji: "🥄", allergen: false }];
     setCustom(nc); persist(records, nc); setNewName(""); setAdding(false);
   };
+  const removeCustom = (id) => {
+    const nc = custom.filter((c) => c.id !== id);
+    const nr = { ...records }; delete nr[id];
+    setCustom(nc); setRecords(nr); persist(nr, nc); setActive(null);
+  };
 
   // ── AI 레시피 추천 (Supabase에 기록된 레시피 서버 주소로 호출) ──
   const getRecipes = async () => {
@@ -181,8 +186,9 @@ export default function App() {
         body: JSON.stringify({ stage, safeNames }),
       });
       const json = await res.json();
-      if (json.recipes?.length) setRecipes(json.recipes);
-      else setRecipeErr(json.error || "레시피를 못 만들었어요. 다시 한 번 눌러볼래요?");
+      const list = json.combos || json.recipes;
+      if (list?.length) setRecipes(list);
+      else setRecipeErr(json.error || "조합을 못 만들었어요. 다시 한 번 눌러볼래요?");
     } catch (e) {
       setRecipeErr("레시피 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요. 🍳");
     } finally {
@@ -199,7 +205,7 @@ export default function App() {
       <header style={{ textAlign: "center", marginBottom: 14 }}>
         <div style={{ fontSize: 30, lineHeight: 1 }}>🍼</div>
         <h1 style={h1}>우리 아기 이유식 도장깨기</h1>
-        <p style={sub}>먹어본 재료 기록 · 통과 재료로 레시피 추천</p>
+        <p style={sub}>먹어본 재료 기록 · 통과 재료로 큐브 조합 추천</p>
       </header>
 
       {/* 탭 */}
@@ -274,7 +280,7 @@ export default function App() {
             style={{ ...cookBtn, opacity: safeNames.length < 2 || cooking ? 0.5 : 1 }}
             disabled={safeNames.length < 2 || cooking}
             onClick={getRecipes}>
-            {cooking ? "🍲 레시피 끓이는 중…" : safeNames.length < 2 ? "재료를 2가지 이상 통과시켜 주세요" : "🍳 이 재료로 레시피 추천받기"}
+            {cooking ? "🍱 조합 짜는 중…" : safeNames.length < 2 ? "재료를 2가지 이상 통과시켜 주세요" : "🍱 이 재료로 조합 추천받기"}
           </button>
 
           {recipeErr && <p style={{ color: "#C9982E", fontSize: 12.5, textAlign: "center", marginTop: 12, lineHeight: 1.6 }}>{recipeErr}</p>}
@@ -284,18 +290,26 @@ export default function App() {
           <div style={{ marginTop: 16 }}>
             {recipes.map((r, i) => (
               <div key={i} style={recipeCard}>
-                <div style={{ fontSize: 15.5, fontWeight: 800, color: "#4A4438", marginBottom: 8 }}>🍽️ {r.name}</div>
-                {r.uses?.length > 0 && (
+                <div style={{ fontSize: 15.5, fontWeight: 800, color: "#4A4438", marginBottom: 8 }}>🍱 {r.name}</div>
+                {(r.cubes || r.uses)?.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
-                    {r.uses.map((u, j) => <span key={j} style={useChip}>{u}</span>)}
+                    {(r.cubes || r.uses).map((u, j) => <span key={j} style={useChip}>🧊 {u}</span>)}
                   </div>
                 )}
-                <ol style={{ margin: 0, paddingLeft: 18, color: "#5A5346", fontSize: 13, lineHeight: 1.7 }}>
-                  {r.steps?.map((s, j) => <li key={j} style={{ marginBottom: 3 }}>{s}</li>)}
-                </ol>
+                {r.why && <p style={{ fontSize: 13, color: "#5A5346", lineHeight: 1.7, margin: "0 0 6px" }}>{r.why}</p>}
+                {(r.steps?.length > 0) && (
+                  <ol style={{ margin: "0 0 6px", paddingLeft: 18, color: "#5A5346", fontSize: 13, lineHeight: 1.7 }}>
+                    {r.steps.map((s, j) => <li key={j} style={{ marginBottom: 3 }}>{s}</li>)}
+                  </ol>
+                )}
                 {r.tip && <p style={recipeTip}>💡 {r.tip}</p>}
               </div>
             ))}
+            {recipes.length > 0 && (
+              <p style={{ fontSize: 11, color: "#B7AE9E", textAlign: "center", marginTop: 6, lineHeight: 1.6 }}>
+                AI가 추천한 조합이에요. 알러지·재료 상태는 한 번 더 확인해 주세요 🙏
+              </p>
+            )}
           </div>
         </>
       )}
@@ -324,6 +338,12 @@ export default function App() {
             </div>
             <textarea placeholder="메모 (예: 첫날 입가 살짝 붉어짐, 다음날 괜찮음)"
               value={records[active.id]?.memo || ""} onChange={(e) => setMemo(active.id, e.target.value)} style={memoBox} />
+            {String(active.id).startsWith("c_") && (
+              <button style={deleteBtn}
+                onClick={() => { if (window.confirm(`'${active.name}' 재료를 삭제할까요?`)) removeCustom(active.id); }}>
+                🗑️ 이 재료 삭제 (직접 추가한 재료)
+              </button>
+            )}
             <button style={doneBtn} onClick={() => setActive(null)}>닫기</button>
           </div>
         </div>
@@ -384,6 +404,7 @@ const statusBtn = { border: "none", borderRadius: 13, padding: "13px 8px", fontW
 const memoBox = { width: "100%", boxSizing: "border-box", border: "1.5px solid #ECE7DC", borderRadius: 12, padding: 11, fontSize: 13, resize: "none", height: 64, fontFamily: "inherit", color: "#4A4438", background: "#FBFAF6", outline: "none" };
 const input = { width: "100%", boxSizing: "border-box", border: "1.5px solid #ECE7DC", borderRadius: 12, padding: 13, fontSize: 14, fontFamily: "inherit", marginBottom: 12, outline: "none", background: "#FBFAF6" };
 const doneBtn = { width: "100%", padding: 13, borderRadius: 13, border: "none", background: "#5A5346", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", marginTop: 12 };
+const deleteBtn = { width: "100%", padding: 12, borderRadius: 13, border: "1.5px solid #F2BDB6", background: "#FBE3E0", color: "#D06A60", fontWeight: 700, fontSize: 13, cursor: "pointer", marginTop: 12 };
 const css = `
   .card:active { transform: scale(0.94); }
   * { -webkit-tap-highlight-color: transparent; }
