@@ -164,12 +164,30 @@ export default function App() {
     setCustom(nc); persist(records, nc); setNewName(""); setAdding(false);
   };
 
-  // ── 레시피 추천 (AI 연동은 백엔드 준비 후 제공 예정) ──
+  // ── AI 레시피 추천 (Supabase에 기록된 레시피 서버 주소로 호출) ──
   const getRecipes = async () => {
     setCooking(true); setRecipeErr(""); setRecipes([]);
-    await new Promise((r) => setTimeout(r, 500));
-    setCooking(false);
-    setRecipeErr("AI 레시피 추천 기능은 곧 추가될 예정이에요! 🍳 지금은 위 '통과한 재료'를 참고해서 자유롭게 만들어 주세요.");
+    try {
+      // 1) 레시피 서버 주소를 Supabase config에서 읽기 (터널 URL은 가변)
+      const { data: cfg } = await supabase
+        .from("tracker_state").select("data").eq("id", "_config").maybeSingle();
+      const base = cfg?.data?.recipe_url;
+      if (!base) throw new Error("no recipe server url");
+
+      // 2) 레시피 요청
+      const res = await fetch(base + "/recipes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage, safeNames }),
+      });
+      const json = await res.json();
+      if (json.recipes?.length) setRecipes(json.recipes);
+      else setRecipeErr(json.error || "레시피를 못 만들었어요. 다시 한 번 눌러볼래요?");
+    } catch (e) {
+      setRecipeErr("레시피 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요. 🍳");
+    } finally {
+      setCooking(false);
+    }
   };
 
   if (!loaded) return <div style={{ ...wrap, display: "grid", placeItems: "center", color: "#B7AE9E" }}>불러오는 중…</div>;
