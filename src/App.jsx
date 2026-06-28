@@ -60,6 +60,13 @@ const STAGES = [
   { key: "fin",    label: "완료기", age: "만 12개월~", desc: "완료기. 진밥/유아식, 재료는 작게 썰어 다양한 식감." },
 ];
 
+const DOW = ["일", "월", "화", "수", "목", "금", "토"];
+function fmtDay(d) {
+  const dt = new Date(d + "T00:00:00");
+  if (isNaN(dt.getTime())) return d;
+  return `${dt.getMonth() + 1}월 ${dt.getDate()}일 (${DOW[dt.getDay()]})`;
+}
+
 // 생일(YYYY-MM-DD) → 월령/일수 + 추정 단계
 function computeAge(birthStr) {
   if (!birthStr) return null;
@@ -82,10 +89,12 @@ export default function App() {
   const [view, setView] = useState("tracker"); // tracker | recipes
   const [records, setRecords] = useState({});
   const [custom, setCustom] = useState([]);
+  const [meals, setMeals] = useState([]);       // 식사 기록 [{id, ts, items:[names], memo}]
   const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState(null);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
+  const [mealForm, setMealForm] = useState(null); // 식사 기록 추가 폼 상태
 
   // 레시피/조합 상태
   const [stage, setStage] = useState("late");
@@ -107,6 +116,7 @@ export default function App() {
       if (local) {
         setRecords(local.records || {});
         setCustom(local.custom || []);
+        setMeals(local.meals || []);
       }
 
       // 2) 클라우드 조회
@@ -119,12 +129,13 @@ export default function App() {
 
         const cloud = !error && data ? data.data : null;
         const cloudHasData =
-          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length);
+          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length || (cloud.meals || []).length);
 
         if (cloudHasData) {
           // 클라우드 데이터로 갱신 + 로컬 캐시 업데이트
           setRecords(cloud.records || {});
           setCustom(cloud.custom || []);
+          setMeals(cloud.meals || []);
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloud)); } catch (e) {}
         } else if (local) {
           // 클라우드는 비었는데 로컬에 기록이 있으면 → 클라우드로 올림(최초 백업)
@@ -149,8 +160,8 @@ export default function App() {
     })();
   }, []);
 
-  const persist = (nr, nc) => {
-    const payload = { records: nr, custom: nc };
+  const persist = (nr = records, nc = custom, nm = meals) => {
+    const payload = { records: nr, custom: nc, meals: nm };
     // 1) 로컬 즉시 저장
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
     catch (e) { console.error(e); }
@@ -198,6 +209,54 @@ export default function App() {
     setCustom(nc); setRecords(nr); persist(nr, nc); setActive(null);
   };
 
+  // ── 식사 기록 ──
+  const openMealForm = (m) => {
+    if (m) { setMealForm({ ...m, date: m.ts.slice(0, 10), time: m.ts.slice(11, 16) }); return; }
+    const now = new Date();
+    const pad = (x) => String(x).padStart(2, "0");
+    setMealForm({
+      id: null,
+      date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+      time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+      items: [], memo: "",
+    });
+  };
+  const toggleMealItem = (name) =>
+    setMealForm((f) => ({
+      ...f,
+      items: f.items.includes(name) ? f.items.filter((x) => x !== name) : [...f.items, name],
+    }));
+  const saveMeal = () => {
+    if (!mealForm || !mealForm.items.length) return;
+    const ts = `${mealForm.date}T${mealForm.time}`;
+    const entry = { id: mealForm.id || "m_" + Date.now(), ts, items: mealForm.items, memo: (mealForm.memo || "").trim() };
+    const nm = mealForm.id ? meals.map((m) => (m.id === entry.id ? entry : m)) : [entry, ...meals];
+    setMeals(nm); persist(records, custom, nm); setMealForm(null);
+  };
+  const removeMeal = (id) => {
+    const nm = meals.filter((m) => m.id !== id);
+    setMeals(nm); persist(records, custom, nm);
+  };
+
+  // 날짜별 그룹 (최신순)
+  const mealsByDay = useMemo(() => {
+    const sorted = [...meals].sort((a, b) => (a.ts < b.ts ? 1 : -1));
+    const groups = [];
+    for (const m of sorted) {
+      const day = m.ts.slice(0, 10);
+      let g = groups.find((x) => x.day === day);
+      if (!g) { g = { day, list: [] }; groups.push(g); }
+      g.list.push(m);
+    }
+    return groups;
+  }, [meals]);
+
+  // 식사 기록에 고를 수 있는 재료 = 먹어본(통과/테스트중) 재료
+  const edibleItems = useMemo(
+    () => allItems.filter((i) => ["safe", "trying"].includes(records[i.id]?.status)),
+    [allItems, records]
+  );
+
   // ── AI 레시피 추천 (Supabase에 기록된 레시피 서버 주소로 호출) ──
   const getRecipes = async () => {
     setCooking(true); setRecipeErr(""); setRecipes([]); setNextTry([]);
@@ -243,16 +302,17 @@ export default function App() {
       <header style={{ textAlign: "center", marginBottom: 14 }}>
         <div style={{ fontSize: 30, lineHeight: 1 }}>🍼</div>
         <h1 style={h1}>우리 아기 이유식 도장깨기</h1>
-        <p style={sub}>먹어본 재료 기록 · 통과 재료로 큐브 조합 추천</p>
+        <p style={sub}>재료 기록 · 큐브 조합 추천 · 식사 일지</p>
       </header>
 
       {/* 탭 */}
       <div style={tabs}>
-        <button style={{ ...tab, ...(view === "tracker" ? tabOn : {}) }} onClick={() => setView("tracker")}>📋 체크리스트</button>
-        <button style={{ ...tab, ...(view === "recipes" ? tabOn : {}) }} onClick={() => setView("recipes")}>🍳 오늘 뭐먹지</button>
+        <button style={{ ...tab, ...(view === "tracker" ? tabOn : {}) }} onClick={() => setView("tracker")}>📋 재료체크</button>
+        <button style={{ ...tab, ...(view === "recipes" ? tabOn : {}) }} onClick={() => setView("recipes")}>🍳 추천받기</button>
+        <button style={{ ...tab, ...(view === "meals" ? tabOn : {}) }} onClick={() => setView("meals")}>📖 식사기록</button>
       </div>
 
-      {view === "tracker" ? (
+      {view === "tracker" && (
         <>
           <div style={statRow}>
             <Stat n={counts.safe} label="통과" c="#5C9A6B" bg="#E4F2E1" />
@@ -293,7 +353,9 @@ export default function App() {
             💡 새 재료는 한 번에 하나씩, <b>3일</b> 정도 같은 재료를 주면서 발진·설사·구토가 없는지 보고 "통과"로 넘기는 걸 추천해요. <span style={{ color: "#D6A48E" }}>!</span> 표시는 대표 알러지 유발 식품이에요.
           </p>
         </>
-      ) : (
+      )}
+
+      {view === "recipes" && (
         <>
           {/* 단계 선택 */}
           <p style={{ ...h2, marginBottom: 8 }}>
@@ -374,6 +436,41 @@ export default function App() {
         </>
       )}
 
+      {view === "meals" && (
+        <>
+          <button style={cookBtn} onClick={() => openMealForm()}>＋ 오늘 먹은 거 기록하기</button>
+
+          {meals.length === 0 ? (
+            <p style={{ textAlign: "center", color: "#B7AE9E", fontSize: 12.5, marginTop: 28, lineHeight: 1.8 }}>
+              아직 기록이 없어요.<br />몇 시에 어떤 조합으로 먹었는지 남겨두면<br />알러지 추적할 때 큰 도움이 돼요 📖
+            </p>
+          ) : (
+            <div style={{ marginTop: 18 }}>
+              {mealsByDay.map((g) => (
+                <section key={g.day} style={{ marginBottom: 18 }}>
+                  <h2 style={h2}>{fmtDay(g.day)}</h2>
+                  {g.list.map((m) => (
+                    <div key={m.id} style={mealCard}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 800, color: "#5C9A6B" }}>🕐 {m.ts.slice(11, 16)}</span>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button style={miniBtn} onClick={() => openMealForm(m)}>수정</button>
+                          <button style={{ ...miniBtn, color: "#D06A60" }} onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removeMeal(m.id); }}>삭제</button>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                        {m.items.map((it, j) => <span key={j} style={useChip}>🧊 {it}</span>)}
+                      </div>
+                      {m.memo && <p style={{ fontSize: 12, color: "#8A8170", margin: "8px 0 0", lineHeight: 1.6 }}>📝 {m.memo}</p>}
+                    </div>
+                  ))}
+                </section>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
       {/* 상태 선택 시트 */}
       {active && (
         <div style={overlay} onClick={() => setActive(null)}>
@@ -420,6 +517,45 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 식사 기록 추가/수정 시트 */}
+      {mealForm && (
+        <div style={overlay} onClick={() => setMealForm(null)}>
+          <div style={{ ...sheet, maxHeight: "86vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 16, color: "#4A4438", marginBottom: 14, textAlign: "center" }}>
+              {mealForm.id ? "✏️ 식사 기록 수정" : "📖 식사 기록하기"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <input type="date" value={mealForm.date} onChange={(e) => setMealForm((f) => ({ ...f, date: e.target.value }))} style={{ ...input, marginBottom: 0, flex: 1 }} />
+              <input type="time" value={mealForm.time} onChange={(e) => setMealForm((f) => ({ ...f, time: e.target.value }))} style={{ ...input, marginBottom: 0, flex: 1 }} />
+            </div>
+            <p style={{ ...h2, margin: "0 0 8px 2px" }}>무슨 조합으로 먹었나요? <span style={{ color: "#5C9A6B" }}>{mealForm.items.length || ""}</span></p>
+            {edibleItems.length === 0 ? (
+              <p style={{ fontSize: 12, color: "#B7AE9E", lineHeight: 1.6, margin: "0 0 12px" }}>
+                먼저 '재료체크'에서 먹어본 재료를 '테스트 중' 또는 '통과'로 표시해 주세요!
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, maxHeight: 190, overflowY: "auto" }}>
+                {edibleItems.map((it) => {
+                  const on = mealForm.items.includes(it.name);
+                  return (
+                    <button key={it.id} onClick={() => toggleMealItem(it.name)} style={{ ...pickChip, ...(on ? pickOn : {}) }}>
+                      {it.emoji} {it.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <textarea placeholder="메모 (예: 잘 먹음 / 새 재료 연어 첫 도전 — 발진 없음)"
+              value={mealForm.memo} onChange={(e) => setMealForm((f) => ({ ...f, memo: e.target.value }))} style={memoBox} />
+            <button style={{ ...doneBtn, background: "#5C9A6B", opacity: mealForm.items.length ? 1 : 0.5 }}
+              disabled={!mealForm.items.length} onClick={saveMeal}>
+              {mealForm.items.length ? `${mealForm.items.length}가지 조합 저장` : "재료를 골라주세요"}
+            </button>
+            <button style={{ ...doneBtn, background: "#EFEBE2", color: "#8A8170", marginTop: 8 }} onClick={() => setMealForm(null)}>취소</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -437,8 +573,8 @@ function Stat({ n, label, c, bg }) {
 const wrap = { maxWidth: 460, margin: "0 auto", padding: "26px 16px 60px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif", background: "#FBFAF6", minHeight: "100vh", color: "#4A4438" };
 const h1 = { fontSize: 21, fontWeight: 800, margin: "8px 0 2px", letterSpacing: "-0.5px" };
 const sub = { fontSize: 12.5, color: "#B7AE9E", margin: 0 };
-const tabs = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, background: "#EFEBE2", padding: 4, borderRadius: 14, marginBottom: 18 };
-const tab = { border: "none", background: "transparent", padding: "9px 0", borderRadius: 10, fontSize: 13.5, fontWeight: 700, color: "#9A917E", cursor: "pointer" };
+const tabs = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5, background: "#EFEBE2", padding: 4, borderRadius: 14, marginBottom: 18 };
+const tab = { border: "none", background: "transparent", padding: "9px 0", borderRadius: 10, fontSize: 12.5, fontWeight: 700, color: "#9A917E", cursor: "pointer" };
 const tabOn = { background: "#FFFDF8", color: "#5A5346", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" };
 const statRow = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 };
 const statBox = { borderRadius: 16, padding: "12px 0", textAlign: "center" };
@@ -460,6 +596,10 @@ const useChip = { fontSize: 11, fontWeight: 700, color: "#5C9A6B", background: "
 const recipeTip = { fontSize: 12, color: "#C9982E", background: "#FFF8E8", borderRadius: 10, padding: "8px 10px", margin: "10px 0 0", lineHeight: 1.6 };
 const nextCard = { background: "#F4FAF2", borderRadius: 18, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(90,83,70,0.06), inset 0 0 0 1px #DCEDD6" };
 const nextHow = { fontSize: 12, color: "#5C9A6B", background: "#E4F2E1", borderRadius: 10, padding: "8px 10px", margin: "8px 0 0", lineHeight: 1.6 };
+const mealCard = { background: "#FFFDF8", borderRadius: 16, padding: 14, marginBottom: 10, boxShadow: "0 2px 8px rgba(90,83,70,0.05), inset 0 0 0 1px #F0ECE2" };
+const miniBtn = { border: "none", background: "transparent", color: "#9A917E", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "2px 4px" };
+const pickChip = { border: "none", borderRadius: 99, padding: "7px 11px", fontSize: 12.5, fontWeight: 600, background: "#F3F1EC", color: "#8A8170", cursor: "pointer" };
+const pickOn = { background: "#E4F2E1", color: "#5C9A6B", boxShadow: "inset 0 0 0 1.5px #BFE0BC" };
 const overlay = { position: "fixed", inset: 0, background: "rgba(60,54,44,0.32)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50, padding: 12 };
 const sheet = { width: "100%", maxWidth: 420, background: "#FFFDF8", borderRadius: 24, padding: 20, boxShadow: "0 -6px 30px rgba(0,0,0,0.12)" };
 const statusBtn = { border: "none", borderRadius: 13, padding: "13px 8px", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 };
