@@ -52,6 +52,12 @@ const SEED = [
 
 const STORAGE_KEY = "babyFoodTracker_v1";
 
+// ── 화면 잠금(PIN) ─────────────────────────────────────────
+// 주의: 이건 '화면 가림막'이다. 앱 화면을 못 보게 막을 뿐,
+// Supabase 데이터 자체 잠금(RLS)은 아니다. 캐주얼 차단용.
+const PIN = "0211";
+const PIN_KEY = "iyusik_unlocked_v1";
+
 // ── 이유식 단계 ────────────────────────────────────────────
 const STAGES = [
   { key: "early",  label: "초기", age: "만 4~6개월",  desc: "초기 이유식. 10배죽/미음, 재료는 곱게 갈아 묽게." },
@@ -91,6 +97,9 @@ export default function App() {
   const [custom, setCustom] = useState([]);
   const [meals, setMeals] = useState([]);       // 식사 기록 [{id, ts, items:[names], memo}]
   const [loaded, setLoaded] = useState(false);
+  const [unlocked, setUnlocked] = useState(() => {
+    try { return localStorage.getItem(PIN_KEY) === "1"; } catch (e) { return false; }
+  });
   const [active, setActive] = useState(null);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -294,6 +303,14 @@ export default function App() {
   };
 
   if (!loaded) return <div style={{ ...wrap, display: "grid", placeItems: "center", color: "#B7AE9E" }}>불러오는 중…</div>;
+
+  // 화면 잠금: PIN 안 풀렸으면 PIN 화면만 보여줌
+  if (!unlocked) {
+    return <PinGate onOk={() => {
+      try { localStorage.setItem(PIN_KEY, "1"); } catch (e) {}
+      setUnlocked(true);
+    }} />;
+  }
 
   return (
     <div style={wrap}>
@@ -560,6 +577,51 @@ export default function App() {
   );
 }
 
+// ── PIN 잠금 화면 ──────────────────────────────────────────
+function PinGate({ onOk }) {
+  const [pin, setPin] = useState("");
+  const [shake, setShake] = useState(false);
+
+  const press = (d) => {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    if (next.length === 4) {
+      if (next === PIN) {
+        setTimeout(onOk, 120);
+      } else {
+        setShake(true);
+        setTimeout(() => { setShake(false); setPin(""); }, 420);
+      }
+    }
+  };
+  const back = () => setPin((p) => p.slice(0, -1));
+
+  return (
+    <div style={pinWrap}>
+      <style>{css}</style>
+      <div style={{ fontSize: 38, marginBottom: 8 }}>🍼</div>
+      <h1 style={{ ...h1, marginBottom: 4 }}>우리 아기 이유식 도장깨기</h1>
+      <p style={{ ...sub, marginBottom: 26 }}>비밀번호 4자리를 눌러주세요</p>
+
+      <div className={shake ? "shake" : ""} style={pinDots}>
+        {[0, 1, 2, 3].map((i) => (
+          <span key={i} style={{ ...pinDot, ...(i < pin.length ? pinDotOn : {}) }} />
+        ))}
+      </div>
+
+      <div style={pinPad}>
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+          <button key={d} style={pinKey} onClick={() => press(d)}>{d}</button>
+        ))}
+        <span />
+        <button style={pinKey} onClick={() => press("0")}>0</button>
+        <button style={{ ...pinKey, fontSize: 18, color: "#B7AE9E" }} onClick={back}>⌫</button>
+      </div>
+    </div>
+  );
+}
+
 function Stat({ n, label, c, bg }) {
   return (
     <div style={{ ...statBox, background: bg }}>
@@ -607,10 +669,18 @@ const memoBox = { width: "100%", boxSizing: "border-box", border: "1.5px solid #
 const input = { width: "100%", boxSizing: "border-box", border: "1.5px solid #ECE7DC", borderRadius: 12, padding: 13, fontSize: 14, fontFamily: "inherit", marginBottom: 12, outline: "none", background: "#FBFAF6" };
 const doneBtn = { width: "100%", padding: 13, borderRadius: 13, border: "none", background: "#5A5346", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", marginTop: 12 };
 const deleteBtn = { width: "100%", padding: 12, borderRadius: 13, border: "1.5px solid #F2BDB6", background: "#FBE3E0", color: "#D06A60", fontWeight: 700, fontSize: 13, cursor: "pointer", marginTop: 12 };
+const pinWrap = { maxWidth: 460, margin: "0 auto", padding: "26px 16px 40px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif", background: "#FBFAF6", minHeight: "100vh", color: "#4A4438", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" };
+const pinDots = { display: "flex", gap: 16, marginBottom: 34 };
+const pinDot = { width: 14, height: 14, borderRadius: 99, background: "transparent", boxShadow: "inset 0 0 0 2px #D8D2C4" };
+const pinDotOn = { background: "#5C9A6B", boxShadow: "inset 0 0 0 2px #5C9A6B" };
+const pinPad = { display: "grid", gridTemplateColumns: "repeat(3, 70px)", gap: 14 };
+const pinKey = { width: 70, height: 70, borderRadius: 99, border: "none", background: "#FFFDF8", boxShadow: "0 2px 8px rgba(90,83,70,0.08), inset 0 0 0 1px #F0ECE2", fontSize: 24, fontWeight: 600, color: "#5A5346", cursor: "pointer" };
 const css = `
   .card:active { transform: scale(0.94); }
   * { -webkit-tap-highlight-color: transparent; }
   body { margin: 0; }
   @keyframes wob { 0%,100%{transform:rotate(-12deg)} 50%{transform:rotate(12deg)} }
   .pot { animation: wob .7s ease-in-out infinite; display:inline-block; }
+  @keyframes shk { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
+  .shake { animation: shk .42s ease; }
 `;
