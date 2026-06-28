@@ -60,6 +60,24 @@ const STAGES = [
   { key: "fin",    label: "완료기", age: "만 12개월~", desc: "완료기. 진밥/유아식, 재료는 작게 썰어 다양한 식감." },
 ];
 
+// 생일(YYYY-MM-DD) → 월령/일수 + 추정 단계
+function computeAge(birthStr) {
+  if (!birthStr) return null;
+  const b = new Date(birthStr);
+  if (isNaN(b.getTime())) return null;
+  const now = new Date();
+  const totalDays = Math.floor((now - b) / 86400000);
+  if (totalDays < 0) return null;
+  let months = (now.getFullYear() - b.getFullYear()) * 12 + (now.getMonth() - b.getMonth());
+  if (now.getDate() < b.getDate()) months--;
+  let stage = "late";
+  if (months < 6) stage = "early";
+  else if (months < 9) stage = "mid";
+  else if (months < 12) stage = "late";
+  else stage = "fin";
+  return { months, totalDays, text: `생후 ${months}개월 (${totalDays}일)`, stage };
+}
+
 export default function App() {
   const [view, setView] = useState("tracker"); // tracker | recipes
   const [records, setRecords] = useState({});
@@ -69,9 +87,11 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
 
-  // 레시피 상태
+  // 레시피/조합 상태
   const [stage, setStage] = useState("late");
-  const [recipes, setRecipes] = useState([]);
+  const [recipes, setRecipes] = useState([]);   // 통과 재료 조합
+  const [nextTry, setNextTry] = useState([]);   // 새로 도전할 재료
+  const [babyAge, setBabyAge] = useState("");   // 생일 기준 월령 (예: "생후 9개월 (282일)")
   const [cooking, setCooking] = useState(false);
   const [recipeErr, setRecipeErr] = useState("");
 
@@ -116,6 +136,15 @@ export default function App() {
         // 네트워크 실패 시 로컬 데이터로 계속 동작
         console.error("cloud load failed", e);
       }
+
+      // 아기 생일 → 월령 계산 (생일은 공개 소스에 안 박고 클라우드 _settings 행에 보관)
+      try {
+        const { data: setg } = await supabase
+          .from("tracker_state").select("data").eq("id", "_settings").maybeSingle();
+        const age = computeAge(setg?.data?.baby_birth);
+        if (age) { setBabyAge(age.text); setStage(age.stage); }
+      } catch (e) {}
+
       setLoaded(true);
     })();
   }, []);
@@ -171,7 +200,7 @@ export default function App() {
 
   // ── AI 레시피 추천 (Supabase에 기록된 레시피 서버 주소로 호출) ──
   const getRecipes = async () => {
-    setCooking(true); setRecipeErr(""); setRecipes([]);
+    setCooking(true); setRecipeErr(""); setRecipes([]); setNextTry([]);
     try {
       // 1) 레시피 서버 주소를 Supabase config에서 읽기 (터널 URL은 가변)
       const { data: cfg } = await supabase
@@ -179,16 +208,25 @@ export default function App() {
       const base = cfg?.data?.recipe_url;
       if (!base) throw new Error("no recipe server url");
 
-      // 2) 레시피 요청
+      // 아직 안 먹어본 재료 (새로 도전할 후보)
+      const untriedNames = allItems
+        .filter((i) => !records[i.id]?.status || records[i.id].status === "none")
+        .map((i) => i.name);
+
+      // 2) 조합 + 새 재료 추천 요청
       const res = await fetch(base + "/recipes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage, safeNames }),
+        body: JSON.stringify({ stage, safeNames, untriedNames, babyAge }),
       });
       const json = await res.json();
       const list = json.combos || json.recipes;
-      if (list?.length) setRecipes(list);
-      else setRecipeErr(json.error || "조합을 못 만들었어요. 다시 한 번 눌러볼래요?");
+      if (list?.length) {
+        setRecipes(list);
+        setNextTry(Array.isArray(json.nextTry) ? json.nextTry : []);
+      } else {
+        setRecipeErr(json.error || "조합을 못 만들었어요. 다시 한 번 눌러볼래요?");
+      }
     } catch (e) {
       setRecipeErr("레시피 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요. 🍳");
     } finally {
@@ -258,7 +296,9 @@ export default function App() {
       ) : (
         <>
           {/* 단계 선택 */}
-          <p style={{ ...h2, marginBottom: 8 }}>우리 아기 단계</p>
+          <p style={{ ...h2, marginBottom: 8 }}>
+            우리 아기 단계{babyAge && <span style={{ color: "#5C9A6B", fontWeight: 700 }}> · {babyAge}</span>}
+          </p>
           <div style={stageRow}>
             {STAGES.map((s) => (
               <button key={s.key} onClick={() => setStage(s.key)}
@@ -311,6 +351,26 @@ export default function App() {
               </p>
             )}
           </div>
+
+          {/* 새로 도전해볼 재료 (알러지 테스트) */}
+          {nextTry.length > 0 && (
+            <div style={{ marginTop: 22 }}>
+              <p style={{ ...h2, marginBottom: 4 }}>🌱 새로 도전해볼 재료</p>
+              <p style={{ fontSize: 11.5, color: "#A9A091", margin: "0 0 12px 2px", lineHeight: 1.6 }}>
+                아직 안 먹어본 재료 중 지금 단계에 좋은 거예요. 알러지 테스트로 하나씩 넘겨봐요!
+              </p>
+              {nextTry.map((n, i) => (
+                <div key={i} style={nextCard}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#4A4438", marginBottom: 6 }}>🌱 {n.name}</div>
+                  {n.why && <p style={{ fontSize: 12.5, color: "#5A5346", lineHeight: 1.7, margin: "0 0 6px" }}>{n.why}</p>}
+                  {n.how && <p style={nextHow}>🧪 이렇게 줘보기: {n.how}</p>}
+                </div>
+              ))}
+              <p style={{ fontSize: 11, color: "#B7AE9E", textAlign: "center", marginTop: 6, lineHeight: 1.6 }}>
+                새 재료는 한 번에 하나씩 · 소량 · 오전 · 3일 관찰이 안전해요 🙏
+              </p>
+            </div>
+          )}
         </>
       )}
 
@@ -398,6 +458,8 @@ const cookBtn = { width: "100%", padding: 15, borderRadius: 14, border: "none", 
 const recipeCard = { background: "#FFFDF8", borderRadius: 18, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(90,83,70,0.06), inset 0 0 0 1px #F0ECE2" };
 const useChip = { fontSize: 11, fontWeight: 700, color: "#5C9A6B", background: "#E4F2E1", borderRadius: 99, padding: "4px 9px" };
 const recipeTip = { fontSize: 12, color: "#C9982E", background: "#FFF8E8", borderRadius: 10, padding: "8px 10px", margin: "10px 0 0", lineHeight: 1.6 };
+const nextCard = { background: "#F4FAF2", borderRadius: 18, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(90,83,70,0.06), inset 0 0 0 1px #DCEDD6" };
+const nextHow = { fontSize: 12, color: "#5C9A6B", background: "#E4F2E1", borderRadius: 10, padding: "8px 10px", margin: "8px 0 0", lineHeight: 1.6 };
 const overlay = { position: "fixed", inset: 0, background: "rgba(60,54,44,0.32)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50, padding: 12 };
 const sheet = { width: "100%", maxWidth: 420, background: "#FFFDF8", borderRadius: 24, padding: 20, boxShadow: "0 -6px 30px rgba(0,0,0,0.12)" };
 const statusBtn = { border: "none", borderRadius: 13, padding: "13px 8px", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 };
