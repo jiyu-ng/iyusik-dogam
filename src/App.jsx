@@ -91,6 +91,35 @@ function computeAge(birthStr) {
   return { months, totalDays, text: `생후 ${months}개월 (${totalDays}일)`, stage };
 }
 
+// ── 끼니(식사 시간대) ──────────────────────────────────────
+const SLOTS = [
+  { key: "아침", emoji: "🌅" },
+  { key: "점심", emoji: "☀️" },
+  { key: "저녁", emoji: "🌙" },
+  { key: "간식", emoji: "🍪" },
+];
+const SLOT_ORDER = { 아침: 0, 점심: 1, 저녁: 2, 간식: 3 };
+const SLOT_EMOJI = { 아침: "🌅", 점심: "☀️", 저녁: "🌙", 간식: "🍪" };
+function inferSlot(hour) {
+  if (hour < 11) return "아침";
+  if (hour < 15) return "점심";
+  if (hour < 21) return "저녁";
+  return "간식";
+}
+// 기존(끼니 없던) 기록도 안전하게 읽기
+function mealSlot(m) {
+  if (m.slot) return m.slot;
+  const h = parseInt((m.ts || "").slice(11, 13), 10);
+  return inferSlot(isNaN(h) ? 12 : h);
+}
+function mealTime(m) {
+  if (m.time !== undefined) return m.time;
+  return m.ts ? m.ts.slice(11, 16) : "";
+}
+function mealDate(m) {
+  return m.date || (m.ts ? m.ts.slice(0, 10) : "");
+}
+
 export default function App() {
   const [view, setView] = useState("tracker"); // tracker | recipes
   const [records, setRecords] = useState({});
@@ -220,13 +249,17 @@ export default function App() {
 
   // ── 식사 기록 ──
   const openMealForm = (m) => {
-    if (m) { setMealForm({ ...m, date: m.ts.slice(0, 10), time: m.ts.slice(11, 16) }); return; }
+    if (m) {
+      setMealForm({ id: m.id, date: mealDate(m), slot: mealSlot(m), time: mealTime(m), items: m.items, memo: m.memo || "" });
+      return;
+    }
     const now = new Date();
     const pad = (x) => String(x).padStart(2, "0");
     setMealForm({
       id: null,
       date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-      time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+      slot: inferSlot(now.getHours()),
+      time: "", // 시간은 옵션
       items: [], memo: "",
     });
   };
@@ -237,8 +270,13 @@ export default function App() {
     }));
   const saveMeal = () => {
     if (!mealForm || !mealForm.items.length) return;
-    const ts = `${mealForm.date}T${mealForm.time}`;
-    const entry = { id: mealForm.id || "m_" + Date.now(), ts, items: mealForm.items, memo: (mealForm.memo || "").trim() };
+    const time = mealForm.time || "";
+    const ts = `${mealForm.date}T${time || "00:00"}`; // 정렬/호환용
+    const entry = {
+      id: mealForm.id || "m_" + Date.now(),
+      ts, date: mealForm.date, slot: mealForm.slot, time,
+      items: mealForm.items, memo: (mealForm.memo || "").trim(),
+    };
     const nm = mealForm.id ? meals.map((m) => (m.id === entry.id ? entry : m)) : [entry, ...meals];
     setMeals(nm); persist(records, custom, nm); setMealForm(null);
   };
@@ -247,15 +285,22 @@ export default function App() {
     setMeals(nm); persist(records, custom, nm);
   };
 
-  // 날짜별 그룹 (최신순)
+  // 날짜별 그룹 (날짜 최신순, 하루 안에선 아침→점심→저녁→간식 순)
   const mealsByDay = useMemo(() => {
-    const sorted = [...meals].sort((a, b) => (a.ts < b.ts ? 1 : -1));
     const groups = [];
-    for (const m of sorted) {
-      const day = m.ts.slice(0, 10);
+    for (const m of meals) {
+      const day = mealDate(m);
       let g = groups.find((x) => x.day === day);
       if (!g) { g = { day, list: [] }; groups.push(g); }
       g.list.push(m);
+    }
+    groups.sort((a, b) => (a.day < b.day ? 1 : -1));
+    for (const g of groups) {
+      g.list.sort((a, b) => {
+        const so = SLOT_ORDER[mealSlot(a)] - SLOT_ORDER[mealSlot(b)];
+        if (so !== 0) return so;
+        return mealTime(a) < mealTime(b) ? -1 : 1;
+      });
     }
     return groups;
   }, [meals]);
@@ -459,7 +504,7 @@ export default function App() {
 
           {meals.length === 0 ? (
             <p style={{ textAlign: "center", color: "#B7AE9E", fontSize: 12.5, marginTop: 28, lineHeight: 1.8 }}>
-              아직 기록이 없어요.<br />몇 시에 어떤 조합으로 먹었는지 남겨두면<br />알러지 추적할 때 큰 도움이 돼요 📖
+              아직 기록이 없어요.<br />어떤 끼니에 어떤 조합으로 먹었는지 남겨두면<br />알러지 추적할 때 큰 도움이 돼요 📖
             </p>
           ) : (
             <div style={{ marginTop: 18 }}>
@@ -469,7 +514,10 @@ export default function App() {
                   {g.list.map((m) => (
                     <div key={m.id} style={mealCard}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <span style={{ fontSize: 13.5, fontWeight: 800, color: "#5C9A6B" }}>🕐 {m.ts.slice(11, 16)}</span>
+                        <span style={{ fontSize: 13.5, fontWeight: 800, color: "#5C9A6B" }}>
+                          {SLOT_EMOJI[mealSlot(m)]} {mealSlot(m)}
+                          {mealTime(m) && <span style={{ fontWeight: 600, color: "#B7AE9E", fontSize: 12 }}> · {mealTime(m)}</span>}
+                        </span>
                         <div style={{ display: "flex", gap: 4 }}>
                           <button style={miniBtn} onClick={() => openMealForm(m)}>수정</button>
                           <button style={{ ...miniBtn, color: "#D06A60" }} onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removeMeal(m.id); }}>삭제</button>
@@ -542,9 +590,25 @@ export default function App() {
             <div style={{ fontWeight: 700, fontSize: 16, color: "#4A4438", marginBottom: 14, textAlign: "center" }}>
               {mealForm.id ? "✏️ 식사 기록 수정" : "📖 식사 기록하기"}
             </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-              <input type="date" value={mealForm.date} onChange={(e) => setMealForm((f) => ({ ...f, date: e.target.value }))} style={{ ...input, marginBottom: 0, flex: 1 }} />
+            <input type="date" value={mealForm.date} onChange={(e) => setMealForm((f) => ({ ...f, date: e.target.value }))} style={{ ...input, marginBottom: 12 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 14 }}>
+              {SLOTS.map((s) => {
+                const on = mealForm.slot === s.key;
+                return (
+                  <button key={s.key} onClick={() => setMealForm((f) => ({ ...f, slot: s.key }))}
+                    style={{ ...stageChip, ...(on ? stageOn : {}) }}>
+                    <span style={{ fontSize: 17 }}>{s.emoji}</span>
+                    <span style={{ fontWeight: 700 }}>{s.key}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+              <span style={{ fontSize: 12, color: "#B7AE9E", fontWeight: 600, whiteSpace: "nowrap" }}>시간 (선택)</span>
               <input type="time" value={mealForm.time} onChange={(e) => setMealForm((f) => ({ ...f, time: e.target.value }))} style={{ ...input, marginBottom: 0, flex: 1 }} />
+              {mealForm.time && (
+                <button style={{ ...miniBtn, color: "#B7AE9E" }} onClick={() => setMealForm((f) => ({ ...f, time: "" }))}>지우기</button>
+              )}
             </div>
             <p style={{ ...h2, margin: "0 0 8px 2px" }}>무슨 조합으로 먹었나요? <span style={{ color: "#5C9A6B" }}>{mealForm.items.length || ""}</span></p>
             {edibleItems.length === 0 ? (
