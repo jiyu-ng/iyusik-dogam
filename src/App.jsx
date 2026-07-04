@@ -214,14 +214,14 @@ export default function App() {
     const base = SEED.flatMap(([cat, list]) =>
       list.map(([name, emoji, allergen]) => ({ id: name, name, emoji, allergen: !!allergen, cat }))
     );
-    return [...base, ...custom.map((c) => ({ ...c, cat: "직접 추가" }))];
+    return [...base, ...custom.map((c) => ({ ...c, cat: c.cat || "직접 추가" }))];
   }, [custom]);
 
   const grouped = useMemo(() => {
     const cats = [...SEED.map(([c]) => c)];
-    if (custom.length) cats.push("직접 추가");
+    if (custom.some((c) => !c.cat || c.cat === "직접 추가")) cats.push("직접 추가");
     return cats.map((cat) => ({ cat, items: allItems.filter((i) => i.cat === cat) }));
-  }, [allItems, custom.length]);
+  }, [allItems, custom]);
 
   const counts = useMemo(() => {
     const c = { safe: 0, trying: 0, react: 0, total: allItems.length };
@@ -245,6 +245,11 @@ export default function App() {
     const nc = custom.filter((c) => c.id !== id);
     const nr = { ...records }; delete nr[id];
     setCustom(nc); setRecords(nr); persist(nr, nc); setActive(null);
+  };
+  const moveCustom = (id, cat) => {
+    const nc = custom.map((c) => (c.id === id ? { ...c, cat } : c));
+    setCustom(nc); persist(records, nc);
+    setActive((a) => (a && a.id === id ? { ...a, cat } : a));
   };
 
   // ── 식사 기록 ──
@@ -561,10 +566,22 @@ export default function App() {
             <textarea placeholder="메모 (예: 첫날 입가 살짝 붉어짐, 다음날 괜찮음)"
               value={records[active.id]?.memo || ""} onChange={(e) => setMemo(active.id, e.target.value)} style={memoBox} />
             {String(active.id).startsWith("c_") && (
-              <button style={deleteBtn}
-                onClick={() => { if (window.confirm(`'${active.name}' 재료를 삭제할까요?`)) removeCustom(active.id); }}>
-                🗑️ 이 재료 삭제 (직접 추가한 재료)
-              </button>
+              <>
+                <div style={{ margin: "6px 0 10px" }}>
+                  <div style={{ fontSize: 12, color: "#B7AE9E", fontWeight: 600, margin: "0 0 6px 2px" }}>📂 카테고리 이동</div>
+                  <select
+                    value={custom.find((c) => c.id === active.id)?.cat || "직접 추가"}
+                    onChange={(e) => moveCustom(active.id, e.target.value)}
+                    style={{ ...input, marginBottom: 0, appearance: "none", cursor: "pointer" }}>
+                    {SEED.map(([cat]) => <option key={cat} value={cat}>{cat}</option>)}
+                    <option value="직접 추가">직접 추가</option>
+                  </select>
+                </div>
+                <button style={deleteBtn}
+                  onClick={() => { if (window.confirm(`'${active.name}' 재료를 삭제할까요?`)) removeCustom(active.id); }}>
+                  🗑️ 이 재료 삭제 (직접 추가한 재료)
+                </button>
+              </>
             )}
             <button style={doneBtn} onClick={() => setActive(null)}>닫기</button>
           </div>
