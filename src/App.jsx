@@ -50,6 +50,21 @@ const SEED = [
   ]],
 ];
 
+// ── 예방접종 표준일정 (NIP, 국가무료) ─────────────────────────
+// 출처: 질병관리청 예방접종도우미 — 2026 기준. 실제 접종은 소아과/보건소 확인.
+const VACCINE_SEED = [
+  ["출생 직후", [["bcg", "BCG (결핵, 피내)"], ["hepb1", "B형간염 1차"]]],
+  ["1개월", [["hepb2", "B형간염 2차"]]],
+  ["2개월", [["dtap1", "DTaP 1차"], ["ipv1", "폴리오(IPV) 1차"], ["hib1", "Hib 1차"], ["pcv1", "폐렴구균(PCV) 1차"], ["rota1", "로타 1차"]]],
+  ["4개월", [["dtap2", "DTaP 2차"], ["ipv2", "폴리오 2차"], ["hib2", "Hib 2차"], ["pcv2", "폐렴구균 2차"], ["rota2", "로타 2차"]]],
+  ["6개월", [["dtap3", "DTaP 3차"], ["ipv3", "폴리오 3차"], ["hib3", "Hib 3차"], ["pcv3", "폐렴구균 3차"], ["rota3", "로타 3차 (로타텍만)"], ["hepb3", "B형간염 3차"]]],
+  ["6개월~매년", [["flu", "인플루엔자(독감) · 첫 해 4주 간격 2회, 이후 매년 1회"]]],
+  ["12~15개월", [["hib4", "Hib 4차"], ["pcv4", "폐렴구균 4차"], ["mmr1", "MMR 1차"], ["var1", "수두 1차"]]],
+  ["12~23개월", [["hepa1", "A형간염 1차 (6~12개월 뒤 2차)"], ["je", "일본뇌염 시작"]]],
+  ["15~18개월", [["dtap4", "DTaP 4차"]]],
+  ["만 4~6세", [["dtap5", "DTaP 5차"], ["ipv4", "폴리오 4차"], ["mmr2", "MMR 2차"], ["je_boost", "일본뇌염 추가"]]],
+];
+
 const STORAGE_KEY = "babyFoodTracker_v1";
 
 // ── 화면 잠금(PIN) ─────────────────────────────────────────
@@ -125,6 +140,7 @@ export default function App() {
   const [records, setRecords] = useState({});
   const [custom, setCustom] = useState([]);
   const [meals, setMeals] = useState([]);       // 식사 기록 [{id, ts, items:[names], memo}]
+  const [vaccines, setVaccines] = useState({}); // 예방접종 { [key]: { done, date } }
   const [loaded, setLoaded] = useState(false);
   const [unlocked, setUnlocked] = useState(() => {
     try { return localStorage.getItem(PIN_KEY) === "1"; } catch (e) { return false; }
@@ -155,6 +171,7 @@ export default function App() {
         setRecords(local.records || {});
         setCustom(local.custom || []);
         setMeals(local.meals || []);
+        setVaccines(local.vaccines || {});
       }
 
       // 2) 클라우드 조회
@@ -167,13 +184,14 @@ export default function App() {
 
         const cloud = !error && data ? data.data : null;
         const cloudHasData =
-          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length || (cloud.meals || []).length);
+          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length || (cloud.meals || []).length || Object.keys(cloud.vaccines || {}).length);
 
         if (cloudHasData) {
           // 클라우드 데이터로 갱신 + 로컬 캐시 업데이트
           setRecords(cloud.records || {});
           setCustom(cloud.custom || []);
           setMeals(cloud.meals || []);
+          setVaccines(cloud.vaccines || {});
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloud)); } catch (e) {}
         } else if (local) {
           // 클라우드는 비었는데 로컬에 기록이 있으면 → 클라우드로 올림(최초 백업)
@@ -198,8 +216,8 @@ export default function App() {
     })();
   }, []);
 
-  const persist = (nr = records, nc = custom, nm = meals) => {
-    const payload = { records: nr, custom: nc, meals: nm };
+  const persist = (nr = records, nc = custom, nm = meals, nv = vaccines) => {
+    const payload = { records: nr, custom: nc, meals: nm, vaccines: nv };
     // 1) 로컬 즉시 저장
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
     catch (e) { console.error(e); }
@@ -251,6 +269,22 @@ export default function App() {
     setCustom(nc); persist(records, nc);
     setActive((a) => (a && a.id === id ? { ...a, cat } : a));
   };
+
+  // ── 예방접종 ──
+  const today = () => new Date().toISOString().slice(0, 10);
+  const toggleVaccine = (key) => {
+    const cur = vaccines[key];
+    const nv = { ...vaccines };
+    if (cur?.done) delete nv[key];                    // 체크 해제 → 기록 삭제
+    else nv[key] = { done: true, date: today() };     // 체크 → 오늘 날짜 자동
+    setVaccines(nv); persist(records, custom, meals, nv);
+  };
+  const setVaccineDate = (key, date) => {
+    const nv = { ...vaccines, [key]: { done: true, date } };
+    setVaccines(nv); persist(records, custom, meals, nv);
+  };
+  const vaxTotal = VACCINE_SEED.reduce((n, [, list]) => n + list.length, 0);
+  const vaxDone = Object.values(vaccines).filter((v) => v?.done).length;
 
   // ── 식사 기록 ──
   const openMealForm = (m) => {
@@ -367,9 +401,9 @@ export default function App() {
       <style>{css}</style>
 
       <header style={{ textAlign: "center", marginBottom: 14 }}>
-        <div style={{ fontSize: 30, lineHeight: 1 }}>🍼</div>
-        <h1 style={h1}>우리 아기 이유식 도장깨기</h1>
-        <p style={sub}>재료 기록 · 큐브 조합 추천 · 식사 일지</p>
+        <div style={{ fontSize: 30, lineHeight: 1 }}>🐣</div>
+        <h1 style={h1}>모이</h1>
+        <p style={sub}>우리 아기 육아 도감 · 이유식 · 예방접종</p>
       </header>
 
       {/* 탭 */}
@@ -377,6 +411,7 @@ export default function App() {
         <button style={{ ...tab, ...(view === "tracker" ? tabOn : {}) }} onClick={() => setView("tracker")}>📋 재료체크</button>
         <button style={{ ...tab, ...(view === "recipes" ? tabOn : {}) }} onClick={() => setView("recipes")}>🍳 추천받기</button>
         <button style={{ ...tab, ...(view === "meals" ? tabOn : {}) }} onClick={() => setView("meals")}>📖 식사기록</button>
+        <button style={{ ...tab, ...(view === "vaccine" ? tabOn : {}) }} onClick={() => setView("vaccine")}>💉 예방접종</button>
       </div>
 
       {view === "tracker" && (
@@ -538,6 +573,52 @@ export default function App() {
               ))}
             </div>
           )}
+        </>
+      )}
+
+      {view === "vaccine" && (
+        <>
+          <div style={progressTrack}>
+            <div style={{ ...progressFill, width: `${vaxTotal ? (vaxDone / vaxTotal) * 100 : 0}%`, background: "#7EA9D8" }} />
+          </div>
+          <p style={{ textAlign: "center", fontSize: 12, color: "#B7AE9E", margin: "8px 0 18px" }}>
+            표준일정 {vaxTotal}개 중 <b style={{ color: "#5E86B4" }}>{vaxDone}개</b> 완료 💉
+          </p>
+
+          {VACCINE_SEED.map(([period, list]) => (
+            <section key={period} style={{ marginBottom: 20 }}>
+              <h2 style={h2}>{period}</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {list.map(([key, name]) => {
+                  const v = vaccines[key];
+                  const done = !!v?.done;
+                  return (
+                    <div key={key} style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", borderRadius: 14,
+                      background: done ? "#E7F0FA" : "#FFF", boxShadow: `inset 0 0 0 1.5px ${done ? "#B9D3EC" : "#EFE9DE"}`,
+                    }}>
+                      <button onClick={() => toggleVaccine(key)} aria-label="접종 체크" style={{
+                        width: 26, height: 26, flexShrink: 0, borderRadius: 8, border: "none", cursor: "pointer",
+                        background: done ? "#5E86B4" : "#F1ECE1", color: "#FFF", fontSize: 15, fontWeight: 800,
+                        display: "grid", placeItems: "center",
+                      }}>{done ? "✓" : ""}</button>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: done ? "#3F5C7C" : "#5A5346" }}>{name}</div>
+                        {done && (
+                          <input type="date" value={v.date || ""} onChange={(e) => setVaccineDate(key, e.target.value)}
+                            style={{ marginTop: 5, fontSize: 12, color: "#5E86B4", fontWeight: 600, border: "none", background: "transparent", padding: 0, fontFamily: "inherit" }} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+
+          <p style={tip}>
+            💉 국가예방접종(NIP) 표준일정이에요. 로타·일본뇌염은 백신 종류에 따라 횟수가 달라요. 실제 접종 시기·종류는 소아과·보건소 안내를 따라주세요 🙏
+          </p>
         </>
       )}
 
@@ -716,8 +797,8 @@ function Stat({ n, label, c, bg }) {
 const wrap = { maxWidth: 460, margin: "0 auto", padding: "26px 16px 60px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif", background: "#FBFAF6", minHeight: "100vh", color: "#4A4438" };
 const h1 = { fontSize: 21, fontWeight: 800, margin: "8px 0 2px", letterSpacing: "-0.5px" };
 const sub = { fontSize: 12.5, color: "#B7AE9E", margin: 0 };
-const tabs = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5, background: "#EFEBE2", padding: 4, borderRadius: 14, marginBottom: 18 };
-const tab = { border: "none", background: "transparent", padding: "9px 0", borderRadius: 10, fontSize: 12.5, fontWeight: 700, color: "#9A917E", cursor: "pointer" };
+const tabs = { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, background: "#EFEBE2", padding: 4, borderRadius: 14, marginBottom: 18 };
+const tab = { border: "none", background: "transparent", padding: "9px 0", borderRadius: 10, fontSize: 11.5, fontWeight: 700, color: "#9A917E", cursor: "pointer", whiteSpace: "nowrap" };
 const tabOn = { background: "#FFFDF8", color: "#5A5346", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" };
 const statRow = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 };
 const statBox = { borderRadius: 16, padding: "12px 0", textAlign: "center" };
