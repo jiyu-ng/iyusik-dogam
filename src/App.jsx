@@ -65,6 +65,17 @@ const VACCINE_SEED = [
   ["만 4~6세", [["dtap5", "DTaP 5차"], ["ipv4", "폴리오 4차"], ["mmr2", "MMR 2차"], ["je_boost", "일본뇌염 추가"]]],
 ];
 
+// ── 월령별 발달 체크포인트 ────────────────────────────────────
+// 출처: 모이 육아 로드맵 §5 (질병관리청 국가건강정보포털 등). 발달은 아이마다 ±2~3개월 편차 정상.
+const DEV_SEED = [
+  ["4개월", [["d4_neck", "목 가누기"], ["d4_sound", "소리 나는 쪽 쳐다보기"], ["d4_coo", "옹알이"]]],
+  ["6개월", [["d6_roll", "뒤집기"], ["d6_sit", "지지하면 앉기"], ["d6_grab", "손으로 물건 잡기"]]],
+  ["9개월", [["d9_sit", "혼자 앉기"], ["d9_crawl", "기기"], ["d9_stand", "잡고 서기"], ["d9_shy", "낯가림"], ["d9_peek", "까꿍 반응"]]],
+  ["12개월", [["d12_cruise", "잡고 걷기(크루징)·첫걸음"], ["d12_word", "\"엄마·아빠\" 의미 있는 말"], ["d12_pinch", "집게잡기"]]],
+  ["18개월", [["d18_walk", "혼자 걷기·계단 오르기"], ["d18_words", "단어 여러 개 말하기"], ["d18_spoon", "숟가락질 시도"]]],
+  ["24개월", [["d24_run", "뛰기"], ["d24_2word", "두 단어 문장"], ["d24_follow", "간단한 지시 이해"]]],
+];
+
 const STORAGE_KEY = "babyFoodTracker_v1";
 
 // ── 화면 잠금(PIN) ─────────────────────────────────────────
@@ -141,6 +152,7 @@ export default function App() {
   const [custom, setCustom] = useState([]);
   const [meals, setMeals] = useState([]);       // 식사 기록 [{id, ts, items:[names], memo}]
   const [vaccines, setVaccines] = useState({}); // 예방접종 { [key]: { done, date } }
+  const [dev, setDev] = useState({});           // 발달 체크 { [key]: { done, date } }
   const [loaded, setLoaded] = useState(false);
   const [unlocked, setUnlocked] = useState(() => {
     try { return localStorage.getItem(PIN_KEY) === "1"; } catch (e) { return false; }
@@ -172,6 +184,7 @@ export default function App() {
         setCustom(local.custom || []);
         setMeals(local.meals || []);
         setVaccines(local.vaccines || {});
+        setDev(local.dev || {});
       }
 
       // 2) 클라우드 조회
@@ -184,7 +197,7 @@ export default function App() {
 
         const cloud = !error && data ? data.data : null;
         const cloudHasData =
-          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length || (cloud.meals || []).length || Object.keys(cloud.vaccines || {}).length);
+          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length || (cloud.meals || []).length || Object.keys(cloud.vaccines || {}).length || Object.keys(cloud.dev || {}).length);
 
         if (cloudHasData) {
           // 클라우드 데이터로 갱신 + 로컬 캐시 업데이트
@@ -192,6 +205,7 @@ export default function App() {
           setCustom(cloud.custom || []);
           setMeals(cloud.meals || []);
           setVaccines(cloud.vaccines || {});
+          setDev(cloud.dev || {});
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloud)); } catch (e) {}
         } else if (local) {
           // 클라우드는 비었는데 로컬에 기록이 있으면 → 클라우드로 올림(최초 백업)
@@ -216,8 +230,8 @@ export default function App() {
     })();
   }, []);
 
-  const persist = (nr = records, nc = custom, nm = meals, nv = vaccines) => {
-    const payload = { records: nr, custom: nc, meals: nm, vaccines: nv };
+  const persist = (nr = records, nc = custom, nm = meals, nv = vaccines, nd = dev) => {
+    const payload = { records: nr, custom: nc, meals: nm, vaccines: nv, dev: nd };
     // 1) 로컬 즉시 저장
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
     catch (e) { console.error(e); }
@@ -285,6 +299,21 @@ export default function App() {
   };
   const vaxTotal = VACCINE_SEED.reduce((n, [, list]) => n + list.length, 0);
   const vaxDone = Object.values(vaccines).filter((v) => v?.done).length;
+
+  // ── 발달 체크 ──
+  const toggleDev = (key) => {
+    const cur = dev[key];
+    const nd = { ...dev };
+    if (cur?.done) delete nd[key];
+    else nd[key] = { done: true, date: today() };
+    setDev(nd); persist(records, custom, meals, vaccines, nd);
+  };
+  const setDevDate = (key, date) => {
+    const nd = { ...dev, [key]: { done: true, date } };
+    setDev(nd); persist(records, custom, meals, vaccines, nd);
+  };
+  const devTotal = DEV_SEED.reduce((n, [, list]) => n + list.length, 0);
+  const devDone = Object.values(dev).filter((v) => v?.done).length;
 
   // ── 식사 기록 ──
   const openMealForm = (m) => {
@@ -412,6 +441,7 @@ export default function App() {
         <button style={{ ...tab, ...(view === "recipes" ? tabOn : {}) }} onClick={() => setView("recipes")}>🍳 추천받기</button>
         <button style={{ ...tab, ...(view === "meals" ? tabOn : {}) }} onClick={() => setView("meals")}>📖 식사기록</button>
         <button style={{ ...tab, ...(view === "vaccine" ? tabOn : {}) }} onClick={() => setView("vaccine")}>💉 예방접종</button>
+        <button style={{ ...tab, ...(view === "dev" ? tabOn : {}) }} onClick={() => setView("dev")}>📏 발달</button>
       </div>
 
       {view === "tracker" && (
@@ -622,6 +652,52 @@ export default function App() {
         </>
       )}
 
+      {view === "dev" && (
+        <>
+          <div style={progressTrack}>
+            <div style={{ ...progressFill, width: `${devTotal ? (devDone / devTotal) * 100 : 0}%`, background: "#5C9A6B" }} />
+          </div>
+          <p style={{ textAlign: "center", fontSize: 12, color: "#B7AE9E", margin: "8px 0 18px" }}>
+            발달 이정표 {devTotal}개 중 <b style={{ color: "#5C9A6B" }}>{devDone}개</b> 달성 🌱
+          </p>
+
+          {DEV_SEED.map(([period, list]) => (
+            <section key={period} style={{ marginBottom: 20 }}>
+              <h2 style={h2}>{period} 무렵</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {list.map(([key, name]) => {
+                  const v = dev[key];
+                  const done = !!v?.done;
+                  return (
+                    <div key={key} style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", borderRadius: 14,
+                      background: done ? "#E7F1E4" : "#FFF", boxShadow: `inset 0 0 0 1.5px ${done ? "#BEDBB6" : "#EFE9DE"}`,
+                    }}>
+                      <button onClick={() => toggleDev(key)} aria-label="발달 체크" style={{
+                        width: 26, height: 26, flexShrink: 0, borderRadius: 8, border: "none", cursor: "pointer",
+                        background: done ? "#5C9A6B" : "#F1ECE1", color: "#FFF", fontSize: 15, fontWeight: 800,
+                        display: "grid", placeItems: "center",
+                      }}>{done ? "✓" : ""}</button>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: done ? "#3E6B4B" : "#5A5346" }}>{name}</div>
+                        {done && (
+                          <input type="date" value={v.date || ""} onChange={(e) => setDevDate(key, e.target.value)}
+                            style={{ marginTop: 5, fontSize: 12, color: "#5C9A6B", fontWeight: 600, border: "none", background: "transparent", padding: 0, fontFamily: "inherit" }} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+
+          <p style={tip}>
+            🌱 월령별 발달 체크포인트예요. 발달은 아이마다 <b>±2~3개월</b> 편차가 정상이에요. 늦다고 조급해하지 말고, 걱정되면 영유아 건강검진 때 K-DST 발달선별로 확인해요 💚
+          </p>
+        </>
+      )}
+
       {/* 상태 선택 시트 */}
       {active && (
         <div style={overlay} onClick={() => setActive(null)}>
@@ -797,8 +873,8 @@ function Stat({ n, label, c, bg }) {
 const wrap = { maxWidth: 460, margin: "0 auto", padding: "26px 16px 60px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif", background: "#FBFAF6", minHeight: "100vh", color: "#4A4438" };
 const h1 = { fontSize: 21, fontWeight: 800, margin: "8px 0 2px", letterSpacing: "-0.5px" };
 const sub = { fontSize: 12.5, color: "#B7AE9E", margin: 0 };
-const tabs = { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, background: "#EFEBE2", padding: 4, borderRadius: 14, marginBottom: 18 };
-const tab = { border: "none", background: "transparent", padding: "9px 0", borderRadius: 10, fontSize: 11.5, fontWeight: 700, color: "#9A917E", cursor: "pointer", whiteSpace: "nowrap" };
+const tabs = { display: "flex", flexWrap: "wrap", gap: 4, background: "#EFEBE2", padding: 4, borderRadius: 14, marginBottom: 18 };
+const tab = { flex: "1 0 30%", border: "none", background: "transparent", padding: "9px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 700, color: "#9A917E", cursor: "pointer", whiteSpace: "nowrap" };
 const tabOn = { background: "#FFFDF8", color: "#5A5346", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" };
 const statRow = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 };
 const statBox = { borderRadius: 16, padding: "12px 0", textAlign: "center" };
