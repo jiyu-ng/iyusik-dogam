@@ -285,16 +285,23 @@ export default function App() {
   };
 
   // ── 예방접종 ──
-  const today = () => new Date().toISOString().slice(0, 10);
   const toggleVaccine = (key) => {
     const cur = vaccines[key];
     const nv = { ...vaccines };
-    if (cur?.done) delete nv[key];                    // 체크 해제 → 기록 삭제
-    else nv[key] = { done: true, date: today() };     // 체크 → 오늘 날짜 자동
+    if (cur?.done) delete nv[key];                        // 체크 해제 → 기록 삭제
+    else nv[key] = { done: true, date: cur?.date || "" }; // 체크 → 날짜는 비워둠(선택 입력)
     setVaccines(nv); persist(records, custom, meals, nv);
   };
   const setVaccineDate = (key, date) => {
     const nv = { ...vaccines, [key]: { done: true, date } };
+    setVaccines(nv); persist(records, custom, meals, nv);
+  };
+  const setPeriodVaccines = (list, done) => {            // 시기 전체 완료/해제
+    const nv = { ...vaccines };
+    list.forEach(([key]) => {
+      if (done) nv[key] = { done: true, date: nv[key]?.date || "" };
+      else delete nv[key];
+    });
     setVaccines(nv); persist(records, custom, meals, nv);
   };
   const vaxTotal = VACCINE_SEED.reduce((n, [, list]) => n + list.length, 0);
@@ -305,11 +312,19 @@ export default function App() {
     const cur = dev[key];
     const nd = { ...dev };
     if (cur?.done) delete nd[key];
-    else nd[key] = { done: true, date: today() };
+    else nd[key] = { done: true, date: cur?.date || "" };
     setDev(nd); persist(records, custom, meals, vaccines, nd);
   };
   const setDevDate = (key, date) => {
     const nd = { ...dev, [key]: { done: true, date } };
+    setDev(nd); persist(records, custom, meals, vaccines, nd);
+  };
+  const setPeriodDev = (list, done) => {
+    const nd = { ...dev };
+    list.forEach(([key]) => {
+      if (done) nd[key] = { done: true, date: nd[key]?.date || "" };
+      else delete nd[key];
+    });
     setDev(nd); persist(records, custom, meals, vaccines, nd);
   };
   const devTotal = DEV_SEED.reduce((n, [, list]) => n + list.length, 0);
@@ -615,9 +630,16 @@ export default function App() {
             표준일정 {vaxTotal}개 중 <b style={{ color: "#5E86B4" }}>{vaxDone}개</b> 완료 💉
           </p>
 
-          {VACCINE_SEED.map(([period, list]) => (
+          {VACCINE_SEED.map(([period, list]) => {
+            const allDone = list.every(([k]) => vaccines[k]?.done);
+            return (
             <section key={period} style={{ marginBottom: 20 }}>
-              <h2 style={h2}>{period}</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2 style={h2}>{period}</h2>
+                <button onClick={() => setPeriodVaccines(list, !allDone)} style={bulkBtn}>
+                  {allDone ? "전체 해제" : "전체 완료"}
+                </button>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {list.map(([key, name]) => {
                   const v = vaccines[key];
@@ -644,7 +666,8 @@ export default function App() {
                 })}
               </div>
             </section>
-          ))}
+            );
+          })}
 
           <p style={tip}>
             💉 국가예방접종(NIP) 표준일정이에요. 로타·일본뇌염은 백신 종류에 따라 횟수가 달라요. 실제 접종 시기·종류는 소아과·보건소 안내를 따라주세요 🙏
@@ -661,9 +684,16 @@ export default function App() {
             발달 이정표 {devTotal}개 중 <b style={{ color: "#5C9A6B" }}>{devDone}개</b> 달성 🌱
           </p>
 
-          {DEV_SEED.map(([period, list]) => (
+          {DEV_SEED.map(([period, list]) => {
+            const allDone = list.every(([k]) => dev[k]?.done);
+            return (
             <section key={period} style={{ marginBottom: 20 }}>
-              <h2 style={h2}>{period} 무렵</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2 style={h2}>{period} 무렵</h2>
+                <button onClick={() => setPeriodDev(list, !allDone)} style={bulkBtn}>
+                  {allDone ? "전체 해제" : "전체 완료"}
+                </button>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {list.map(([key, name]) => {
                   const v = dev[key];
@@ -690,7 +720,8 @@ export default function App() {
                 })}
               </div>
             </section>
-          ))}
+            );
+          })}
 
           <p style={tip}>
             🌱 월령별 발달 체크포인트예요. 발달은 아이마다 <b>±2~3개월</b> 편차가 정상이에요. 늦다고 조급해하지 말고, 걱정되면 영유아 건강검진 때 K-DST 발달선별로 확인해요 💚
@@ -876,6 +907,7 @@ const sub = { fontSize: 12.5, color: "#B7AE9E", margin: 0 };
 const tabs = { display: "flex", flexWrap: "wrap", gap: 4, background: "#EFEBE2", padding: 4, borderRadius: 14, marginBottom: 18 };
 const tab = { flex: "1 0 30%", border: "none", background: "transparent", padding: "9px 4px", borderRadius: 10, fontSize: 11.5, fontWeight: 700, color: "#9A917E", cursor: "pointer", whiteSpace: "nowrap" };
 const tabOn = { background: "#FFFDF8", color: "#5A5346", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" };
+const bulkBtn = { border: "none", background: "#F1ECE1", color: "#9A917E", fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" };
 const statRow = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 };
 const statBox = { borderRadius: 16, padding: "12px 0", textAlign: "center" };
 const progressTrack = { height: 8, background: "#EDEAE2", borderRadius: 99, overflow: "hidden" };
