@@ -65,16 +65,74 @@ const VACCINE_SEED = [
   ["만 4~6세", [["dtap5", "DTaP 5차"], ["ipv4", "폴리오 4차"], ["mmr2", "MMR 2차"], ["je_boost", "일본뇌염 추가"]]],
 ];
 
-// ── 월령별 발달 체크포인트 ────────────────────────────────────
-// 출처: 모이 육아 로드맵 §5 (질병관리청 국가건강정보포털 등). 발달은 아이마다 ±2~3개월 편차 정상.
+// ── 월령별 발달 체크포인트 (상세: K-DST 6개 영역별) ──────────────
+// 출처: 모이 발달 로드맵 상세판 (K-DST 6개 영역 + 대한소아청소년과 이정표).
+// 발달은 아이마다 ±2~3개월 편차 정상. 구조: [시기, [[영역, [[key, 항목], ...]], ...]]
 const DEV_SEED = [
-  ["4개월", [["d4_neck", "목 가누기"], ["d4_sound", "소리 나는 쪽 쳐다보기"], ["d4_coo", "옹알이"]]],
-  ["6개월", [["d6_roll", "뒤집기"], ["d6_sit", "지지하면 앉기"], ["d6_grab", "손으로 물건 잡기"]]],
-  ["9개월", [["d9_sit", "혼자 앉기"], ["d9_crawl", "기기"], ["d9_stand", "잡고 서기"], ["d9_shy", "낯가림"], ["d9_peek", "까꿍 반응"]]],
-  ["12개월", [["d12_cruise", "잡고 걷기(크루징)·첫걸음"], ["d12_word", "\"엄마·아빠\" 의미 있는 말"], ["d12_pinch", "집게잡기"]]],
-  ["18개월", [["d18_walk", "혼자 걷기·계단 오르기"], ["d18_words", "단어 여러 개 말하기"], ["d18_spoon", "숟가락질 시도"]]],
-  ["24개월", [["d24_run", "뛰기"], ["d24_2word", "두 단어 문장"], ["d24_follow", "간단한 지시 이해"]]],
+  ["4개월 무렵", [
+    ["대근육", [["m4_g1", "엎드려 고개 45~90도 들기"], ["m4_g2", "목 가누기"], ["m4_g3", "받쳐 안으면 머리 안정"]]],
+    ["소근육", [["m4_f1", "두 손 모으기"], ["m4_f2", "딸랑이 쥐여주면 쥐기"], ["m4_f3", "손을 입으로 가져가기"]]],
+    ["인지", [["m4_c1", "소리 나는 쪽 쳐다보기"], ["m4_c2", "움직이는 물건 눈으로 따라가기"]]],
+    ["언어", [["m4_l1", "소리 내어 웃기"], ["m4_l2", "옹알이(\"아\",\"우\") 시작"]]],
+    ["사회성", [["m4_s1", "사람 보고 방긋(사회적 미소)"], ["m4_s2", "눈맞춤"]]],
+  ]],
+  ["6개월 무렵", [
+    ["대근육", [["m6_g1", "뒤집기(엎↔바로)"], ["m6_g2", "지지하면 앉기"], ["m6_g3", "엎드려 팔로 상체 들기"]]],
+    ["소근육", [["m6_f1", "손으로 물건 잡기"], ["m6_f2", "손에서 손으로 옮기기"], ["m6_f3", "물건에 손 뻗기"]]],
+    ["인지", [["m6_c1", "떨어뜨린 물건 눈으로 찾기"], ["m6_c2", "거울 보고 반응"]]],
+    ["언어", [["m6_l1", "옹알이 다양해짐(자음)"], ["m6_l2", "소리 흉내"]]],
+    ["사회성", [["m6_s1", "낯익은 얼굴 알아보기"], ["m6_s2", "이름 부르면 반응 시작"]]],
+  ]],
+  ["9개월 무렵", [
+    ["대근육", [["m9_g1", "혼자 안정적으로 앉기"], ["m9_g2", "배밀이/네발기기"], ["m9_g3", "잡고 서기"]]],
+    ["소근육", [["m9_f1", "두 손에 물건 하나씩"], ["m9_f2", "손가락으로 작은 것 집기 시도"], ["m9_f3", "물건 부딪히기"]]],
+    ["인지", [["m9_c1", "까꿍 놀이 반응"], ["m9_c2", "숨긴 물건 찾기(대상영속성)"], ["m9_c3", "컵·숟가락 용도 관심"]]],
+    ["언어", [["m9_l1", "\"마마·바바·다다\" 반복 옹알이"], ["m9_l2", "이름 부르면 돌아보기"], ["m9_l3", "\"안 돼\" 톤 인지 시작"]]],
+    ["사회성", [["m9_s1", "낯가림"], ["m9_s2", "짝짜꿍·빠이빠이 따라하기"], ["m9_s3", "엄마 표정 살피기"], ["m9_s4", "엄마 선호"]]],
+  ]],
+  ["12개월 무렵", [
+    ["대근육", [["m12_g1", "잡고 걷기(크루징)"], ["m12_g2", "혼자 서기"], ["m12_g3", "첫걸음 시도"]]],
+    ["소근육", [["m12_f1", "엄지+검지로 집기(집게잡기 완성)"], ["m12_f2", "물건 담고 꺼내기"], ["m12_f3", "크레용 쥐기"]]],
+    ["인지", [["m12_c1", "원하는 물건 손가락으로 가리키기"], ["m12_c2", "간단한 지시 이해(\"주세요\")"], ["m12_c3", "물건 용도에 맞게 쓰기"]]],
+    ["언어", [["m12_l1", "\"엄마·아빠\" 의미 있게 말하기"], ["m12_l2", "의미 있는 첫 단어 1~2개"]]],
+    ["사회성", [["m12_s1", "손 흔들어 인사"], ["m12_s2", "관심 공유(가리키며 쳐다보기)"]]],
+    ["자조", [["m12_z1", "컵으로 마시기 시도"], ["m12_z2", "손가락으로 집어먹기"]]],
+  ]],
+  ["15개월 무렵", [
+    ["대근육", [["m15_g1", "혼자 걷기"], ["m15_g2", "서서 쭈그려 앉기"]]],
+    ["소근육", [["m15_f1", "두 개 블록 쌓기"], ["m15_f2", "통에 물건 넣기"]]],
+    ["인지", [["m15_c1", "신체 부위 1~2곳 가리키기"], ["m15_c2", "간단한 심부름"]]],
+    ["언어", [["m15_l1", "단어 3~5개"], ["m15_l2", "원하는 것 몸짓+소리로 표현"]]],
+    ["사회성", [["m15_s1", "애정 표현"], ["m15_s2", "다른 아이 관심"]]],
+    ["자조", [["m15_z1", "숟가락 쥐고 시도"], ["m15_z2", "옷 입을 때 팔 뻗기"]]],
+  ]],
+  ["18개월 무렵", [
+    ["대근육", [["m18_g1", "안정적으로 걷기"], ["m18_g2", "계단 기어오르기"], ["m18_g3", "공 차기"]]],
+    ["소근육", [["m18_f1", "블록 3~4개 쌓기"], ["m18_f2", "끄적이기(낙서)"]]],
+    ["인지", [["m18_c1", "신체 부위 여러 곳"], ["m18_c2", "그림책 속 사물 가리키기"]]],
+    ["언어", [["m18_l1", "단어 10개 이상"], ["m18_l2", "익숙한 물건 이름 대기"]]],
+    ["사회성", [["m18_s1", "흉내내기 놀이(전화기 등)"], ["m18_s2", "어른 행동 모방"]]],
+    ["자조", [["m18_z1", "혼자 숟가락질"], ["m18_z2", "컵으로 마시기"]]],
+  ]],
+  ["24개월 무렵", [
+    ["대근육", [["m24_g1", "뛰기"], ["m24_g2", "계단 오르내리기(난간 잡고)"], ["m24_g3", "공 던지기"]]],
+    ["소근육", [["m24_f1", "블록 6개 쌓기"], ["m24_f2", "문 손잡이 돌리기"], ["m24_f3", "책장 한 장씩 넘기기"]]],
+    ["인지", [["m24_c1", "두 단계 지시 이해"], ["m24_c2", "모양·색 구분 시작"]]],
+    ["언어", [["m24_l1", "두 단어 문장(\"엄마 물\")"], ["m24_l2", "단어 50개 이상"]]],
+    ["사회성", [["m24_s1", "또래 옆에서 놀기"], ["m24_s2", "감정 표현 다양"]]],
+    ["자조", [["m24_z1", "옷 벗기"], ["m24_z2", "손 씻기 시도"], ["m24_z3", "배변 신호 시작"]]],
+  ]],
+  ["30~36개월 무렵", [
+    ["대근육", [["m36_g1", "두 발 모아 뛰기"], ["m36_g2", "세발자전거 페달"], ["m36_g3", "한 발 서기"]]],
+    ["소근육", [["m36_f1", "원·선 따라 그리기"], ["m36_f2", "가위질 시도"]]],
+    ["인지", [["m36_c1", "크다/작다 이해"], ["m36_c2", "색 이름"], ["m36_c3", "간단한 퍼즐"]]],
+    ["언어", [["m36_l1", "세 단어 문장"], ["m36_l2", "이름·나이 말하기"], ["m36_l3", "대화 주고받기"]]],
+    ["사회성", [["m36_s1", "또래와 함께 놀기"], ["m36_s2", "차례 지키기 시작"]]],
+    ["자조", [["m36_z1", "대소변 가리기"], ["m36_z2", "혼자 옷 입기 시도"], ["m36_z3", "양치 도움받아"]]],
+  ]],
 ];
+// 전체 발달 항목 flatten (진행률·일괄체크·마이그레이션용)
+const DEV_ALL = DEV_SEED.flatMap(([, domains]) => domains.flatMap(([, items]) => items));
 
 const STORAGE_KEY = "babyFoodTracker_v1";
 
@@ -327,8 +385,8 @@ export default function App() {
     });
     setDev(nd); persist(records, custom, meals, vaccines, nd);
   };
-  const devTotal = DEV_SEED.reduce((n, [, list]) => n + list.length, 0);
-  const devDone = Object.values(dev).filter((v) => v?.done).length;
+  const devTotal = DEV_ALL.length;
+  const devDone = DEV_ALL.filter(([k]) => dev[k]?.done).length;
 
   // ── 식사 기록 ──
   const openMealForm = (m) => {
@@ -684,41 +742,48 @@ export default function App() {
             발달 이정표 {devTotal}개 중 <b style={{ color: "#5C9A6B" }}>{devDone}개</b> 달성 🌱
           </p>
 
-          {DEV_SEED.map(([period, list]) => {
-            const allDone = list.every(([k]) => dev[k]?.done);
+          {DEV_SEED.map(([period, domains]) => {
+            const flat = domains.flatMap(([, items]) => items);
+            const allDone = flat.every(([k]) => dev[k]?.done);
+            const doneN = flat.filter(([k]) => dev[k]?.done).length;
             return (
-            <section key={period} style={{ marginBottom: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <h2 style={h2}>{period} 무렵</h2>
-                <button onClick={() => setPeriodDev(list, !allDone)} style={bulkBtn}>
+            <section key={period} style={{ marginBottom: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <h2 style={{ ...h2, marginBottom: 0 }}>{period} <span style={{ fontSize: 12, color: "#B7AE9E", fontWeight: 600 }}>{doneN}/{flat.length}</span></h2>
+                <button onClick={() => setPeriodDev(flat, !allDone)} style={bulkBtn}>
                   {allDone ? "전체 해제" : "전체 완료"}
                 </button>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {list.map(([key, name]) => {
-                  const v = dev[key];
-                  const done = !!v?.done;
-                  return (
-                    <div key={key} style={{
-                      display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", borderRadius: 14,
-                      background: done ? "#E7F1E4" : "#FFF", boxShadow: `inset 0 0 0 1.5px ${done ? "#BEDBB6" : "#EFE9DE"}`,
-                    }}>
-                      <button onClick={() => toggleDev(key)} aria-label="발달 체크" style={{
-                        width: 26, height: 26, flexShrink: 0, borderRadius: 8, border: "none", cursor: "pointer",
-                        background: done ? "#5C9A6B" : "#F1ECE1", color: "#FFF", fontSize: 15, fontWeight: 800,
-                        display: "grid", placeItems: "center",
-                      }}>{done ? "✓" : ""}</button>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: done ? "#3E6B4B" : "#5A5346" }}>{name}</div>
-                        {done && (
-                          <input type="date" value={v.date || ""} onChange={(e) => setDevDate(key, e.target.value)}
-                            style={{ marginTop: 5, fontSize: 12, color: "#5C9A6B", fontWeight: 600, border: "none", background: "transparent", padding: 0, fontFamily: "inherit" }} />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              {domains.map(([domain, items]) => (
+                <div key={domain} style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "#A99F8C", margin: "6px 2px 5px" }}>{domain}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {items.map(([key, name]) => {
+                      const v = dev[key];
+                      const done = !!v?.done;
+                      return (
+                        <div key={key} style={{
+                          display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 13,
+                          background: done ? "#E7F1E4" : "#FFF", boxShadow: `inset 0 0 0 1.5px ${done ? "#BEDBB6" : "#EFE9DE"}`,
+                        }}>
+                          <button onClick={() => toggleDev(key)} aria-label="발달 체크" style={{
+                            width: 24, height: 24, flexShrink: 0, borderRadius: 7, border: "none", cursor: "pointer",
+                            background: done ? "#5C9A6B" : "#F1ECE1", color: "#FFF", fontSize: 14, fontWeight: 800,
+                            display: "grid", placeItems: "center",
+                          }}>{done ? "✓" : ""}</button>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: done ? "#3E6B4B" : "#5A5346" }}>{name}</div>
+                            {done && (
+                              <input type="date" value={v.date || ""} onChange={(e) => setDevDate(key, e.target.value)}
+                                style={{ marginTop: 4, fontSize: 12, color: "#5C9A6B", fontWeight: 600, border: "none", background: "transparent", padding: 0, fontFamily: "inherit" }} />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </section>
             );
           })}
