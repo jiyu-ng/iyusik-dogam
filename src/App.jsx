@@ -1231,6 +1231,11 @@ function Stat({ n, label, c, bg }) {
 }
 
 const FEED_EMOJI = { 분유: "🍼", 모유: "🤱", 물: "💧", 간식: "🍪" };
+function todayStr() {
+  const d = new Date();
+  const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 function shiftDay(dateStr, delta) {
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(y, m - 1, d + delta);
