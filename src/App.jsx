@@ -211,6 +211,9 @@ export default function App() {
   const [meals, setMeals] = useState([]);       // 식사 기록 [{id, ts, items:[names], memo}]
   const [vaccines, setVaccines] = useState({}); // 예방접종 { [key]: { done, date } }
   const [dev, setDev] = useState({});           // 발달 체크 { [key]: { done, date } }
+  const [feeds, setFeeds] = useState([]);       // 수유 기록 [{id, date, time, kind, amount}]
+  const [feedForm, setFeedForm] = useState(null); // 수유 기록 추가 폼
+  const [statDate, setStatDate] = useState(() => { const d = new Date(); const p = (x) => String(x).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; });
   const [loaded, setLoaded] = useState(false);
   const [unlocked, setUnlocked] = useState(() => {
     try { return localStorage.getItem(PIN_KEY) === "1"; } catch (e) { return false; }
@@ -243,6 +246,7 @@ export default function App() {
         setMeals(local.meals || []);
         setVaccines(local.vaccines || {});
         setDev(local.dev || {});
+        setFeeds(local.feeds || []);
       }
 
       // 2) 클라우드 조회
@@ -255,7 +259,7 @@ export default function App() {
 
         const cloud = !error && data ? data.data : null;
         const cloudHasData =
-          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length || (cloud.meals || []).length || Object.keys(cloud.vaccines || {}).length || Object.keys(cloud.dev || {}).length);
+          cloud && (Object.keys(cloud.records || {}).length || (cloud.custom || []).length || (cloud.meals || []).length || Object.keys(cloud.vaccines || {}).length || Object.keys(cloud.dev || {}).length || (cloud.feeds || []).length);
 
         if (cloudHasData) {
           // 클라우드 데이터로 갱신 + 로컬 캐시 업데이트
@@ -264,6 +268,7 @@ export default function App() {
           setMeals(cloud.meals || []);
           setVaccines(cloud.vaccines || {});
           setDev(cloud.dev || {});
+          setFeeds(cloud.feeds || []);
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloud)); } catch (e) {}
         } else if (local) {
           // 클라우드는 비었는데 로컬에 기록이 있으면 → 클라우드로 올림(최초 백업)
@@ -288,8 +293,8 @@ export default function App() {
     })();
   }, []);
 
-  const persist = (nr = records, nc = custom, nm = meals, nv = vaccines, nd = dev) => {
-    const payload = { records: nr, custom: nc, meals: nm, vaccines: nv, dev: nd };
+  const persist = (nr = records, nc = custom, nm = meals, nv = vaccines, nd = dev, nfd = feeds) => {
+    const payload = { records: nr, custom: nc, meals: nm, vaccines: nv, dev: nd, feeds: nfd };
     // 1) 로컬 즉시 저장
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }
     catch (e) { console.error(e); }
@@ -391,7 +396,7 @@ export default function App() {
   // ── 식사 기록 ──
   const openMealForm = (m) => {
     if (m) {
-      setMealForm({ id: m.id, date: mealDate(m), slot: mealSlot(m), time: mealTime(m), items: m.items, memo: m.memo || "" });
+      setMealForm({ id: m.id, date: mealDate(m), slot: mealSlot(m), time: mealTime(m), items: m.items, memo: m.memo || "", amount: m.amount || "" });
       return;
     }
     const now = new Date();
@@ -401,7 +406,7 @@ export default function App() {
       date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
       slot: inferSlot(now.getHours()),
       time: "", // 시간은 옵션
-      items: [], memo: "",
+      items: [], memo: "", amount: "",
     });
   };
   const toggleMealItem = (name) =>
@@ -417,6 +422,7 @@ export default function App() {
       id: mealForm.id || "m_" + Date.now(),
       ts, date: mealForm.date, slot: mealForm.slot, time,
       items: mealForm.items, memo: (mealForm.memo || "").trim(),
+      amount: parseInt(String(mealForm.amount).replace(/[^0-9]/g, ""), 10) || 0,
     };
     const nm = mealForm.id ? meals.map((m) => (m.id === entry.id ? entry : m)) : [entry, ...meals];
     setMeals(nm); persist(records, custom, nm); setMealForm(null);
@@ -425,6 +431,44 @@ export default function App() {
     const nm = meals.filter((m) => m.id !== id);
     setMeals(nm); persist(records, custom, nm);
   };
+
+  // ── 수유(분유·모유·물) 기록 ──
+  const FEED_KINDS = ["분유", "모유", "물", "간식"];
+  const openFeedForm = (f) => {
+    const now = new Date();
+    const pad = (x) => String(x).padStart(2, "0");
+    if (f) { setFeedForm({ id: f.id, date: f.date, time: f.time || "", kind: f.kind, amount: String(f.amount || "") }); return; }
+    setFeedForm({ id: null, date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}:${pad(now.getMinutes())}`, kind: "분유", amount: "" });
+  };
+  const saveFeed = () => {
+    if (!feedForm) return;
+    const amt = parseInt(String(feedForm.amount).replace(/[^0-9]/g, ""), 10) || 0;
+    if (!amt) return;
+    const entry = { id: feedForm.id || "f_" + Date.now(), date: feedForm.date, time: feedForm.time || "", kind: feedForm.kind, amount: amt };
+    const nfd = feedForm.id ? feeds.map((x) => (x.id === entry.id ? entry : x)) : [entry, ...feeds];
+    setFeeds(nfd); persist(records, custom, meals, vaccines, dev, nfd); setFeedForm(null);
+  };
+  const removeFeed = (id) => {
+    const nfd = feeds.filter((x) => x.id !== id);
+    setFeeds(nfd); persist(records, custom, meals, vaccines, dev, nfd);
+  };
+
+  // 하루 총 섭취량 통계 (분유+모유+물+이유식 다 합산)
+  const dayStats = useMemo(() => {
+    const fd = feeds.filter((f) => f.date === statDate);
+    const md = meals.filter((m) => (m.date || (m.ts || "").slice(0, 10)) === statDate);
+    const sumKind = (ks) => fd.filter((f) => ks.includes(f.kind)).reduce((s, f) => s + (f.amount || 0), 0);
+    const milk = sumKind(["분유", "모유"]);
+    const water = sumKind(["물"]);
+    const snackFeed = sumKind(["간식"]);
+    const mealMl = md.reduce((s, m) => s + (m.amount || 0), 0);
+    const total = milk + water + snackFeed + mealMl;
+    return { fd, md, milk, water, snackFeed, mealMl, total, feedCount: fd.length, mealCount: md.length };
+  }, [feeds, meals, statDate]);
+  const feedsToday = useMemo(() => {
+    const t = statDate;
+    return [...feeds].filter((f) => f.date).sort((a, b) => (b.date + (b.time || "")).localeCompare(a.date + (a.time || "")));
+  }, [feeds, statDate]);
 
   // 날짜별 그룹 (날짜 최신순, 하루 안에선 아침→점심→저녁→간식 순)
   const mealsByDay = useMemo(() => {
@@ -513,6 +557,8 @@ export default function App() {
         <button style={{ ...tab, ...(view === "tracker" ? tabOn : {}) }} onClick={() => setView("tracker")}>📋 재료체크</button>
         <button style={{ ...tab, ...(view === "recipes" ? tabOn : {}) }} onClick={() => setView("recipes")}>🍳 추천받기</button>
         <button style={{ ...tab, ...(view === "meals" ? tabOn : {}) }} onClick={() => setView("meals")}>📖 식사기록</button>
+        <button style={{ ...tab, ...(view === "feeds" ? tabOn : {}) }} onClick={() => setView("feeds")}>🍼 수유</button>
+        <button style={{ ...tab, ...(view === "stats" ? tabOn : {}) }} onClick={() => setView("stats")}>📊 통계</button>
         <button style={{ ...tab, ...(view === "vaccine" ? tabOn : {}) }} onClick={() => setView("vaccine")}>💉 예방접종</button>
         <button style={{ ...tab, ...(view === "dev" ? tabOn : {}) }} onClick={() => setView("dev")}>📏 발달</button>
       </div>
@@ -794,6 +840,64 @@ export default function App() {
         </>
       )}
 
+      {view === "feeds" && (
+        <>
+          <div style={statRow}>
+            <Stat n={dayStats.milk} label="분유·모유(ml)" c="#5C9A6B" bg="#E4F2E1" />
+            <Stat n={dayStats.water} label="물(ml)" c="#4E9AC9" bg="#E1EEF6" />
+            <Stat n={dayStats.feedCount} label="횟수" c="#C9982E" bg="#FFF3D6" />
+          </div>
+          <p style={{ textAlign: "center", fontSize: 12, color: "#B7AE9E", margin: "8px 0 16px" }}>
+            {statDate === todayStr() ? "오늘" : statDate} 수유 기록 🍼
+          </p>
+          <button style={cookBtn} onClick={() => openFeedForm()}>＋ 수유·분유·물 기록하기</button>
+
+          <div style={{ marginTop: 18 }}>
+            {feeds.filter((f) => f.date === statDate).length === 0 ? (
+              <p style={{ textAlign: "center", color: "#B7AE9E", fontSize: 13, padding: "10px 0" }}>이 날 기록이 없어요. ＋로 추가해봐요!</p>
+            ) : (
+              feeds.filter((f) => f.date === statDate).sort((a, b) => (b.time || "").localeCompare(a.time || "")).map((f) => (
+                <div key={f.id} style={feedRow}>
+                  <span style={{ fontSize: 20 }}>{FEED_EMOJI[f.kind] || "🍼"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14.5, fontWeight: 700, color: "#4A4438" }}>{f.kind} <span style={{ color: "#5C9A6B" }}>{f.amount}ml</span></div>
+                    <div style={{ fontSize: 11.5, color: "#B7AE9E" }}>{f.time || "시간 미기록"}</div>
+                  </div>
+                  <button style={miniBtn} onClick={() => openFeedForm(f)}>수정</button>
+                  <button style={{ ...miniBtn, color: "#D06A60" }} onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removeFeed(f.id); }}>삭제</button>
+                </div>
+              ))
+            )}
+          </div>
+          <p style={tip}>🍼 분유·모유·물·간식을 먹을 때마다 ml로 기록하면 📊 통계에서 하루 총량이 자동으로 합산돼요.</p>
+        </>
+      )}
+
+      {view === "stats" && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, margin: "4px 0 16px" }}>
+            <button style={miniBtn} onClick={() => setStatDate(shiftDay(statDate, -1))}>‹ 어제</button>
+            <span style={{ fontWeight: 800, fontSize: 15, color: "#4A4438" }}>{statDate === todayStr() ? "오늘" : statDate}</span>
+            <button style={miniBtn} onClick={() => setStatDate(shiftDay(statDate, 1))} disabled={statDate >= todayStr()}>내일 ›</button>
+          </div>
+
+          <div style={{ background: "linear-gradient(135deg,#EAF6E6,#E1EEF6)", borderRadius: 20, padding: "20px 16px", textAlign: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: "#8A8170", fontWeight: 600 }}>오늘 총 섭취량</div>
+            <div style={{ fontSize: 38, fontWeight: 800, color: "#4A4438", lineHeight: 1.1, margin: "4px 0" }}>{dayStats.total.toLocaleString()}<span style={{ fontSize: 18 }}>ml</span></div>
+            <div style={{ fontSize: 12, color: "#8A8170" }}>분유·모유 + 이유식 + 물 다 합쳐서예요</div>
+          </div>
+
+          <div style={grid2}>
+            <StatBig emoji="🍼" label="분유·모유" val={`${dayStats.milk}ml`} />
+            <StatBig emoji="🥣" label="이유식" val={`${dayStats.mealMl}ml`} sub={`${dayStats.mealCount}끼`} />
+            <StatBig emoji="💧" label="물" val={`${dayStats.water}ml`} />
+            <StatBig emoji="🍪" label="간식" val={`${dayStats.snackFeed}ml`} />
+          </div>
+
+          <p style={tip}>📊 수유(🍼)랑 식사기록(📖)에 ml를 넣으면 여기 하루 총량이 자동으로 쌓여요. 재료별 빈도·영양 밸런스 통계는 곧 추가할게요!</p>
+        </>
+      )}
+
       {/* 상태 선택 시트 */}
       {active && (
         <div style={overlay} onClick={() => setActive(null)}>
@@ -897,6 +1001,13 @@ export default function App() {
                 })}
               </div>
             )}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 10px" }}>
+              <span style={{ fontSize: 12.5, color: "#8A8170", fontWeight: 600, whiteSpace: "nowrap" }}>얼마나 먹었나요?</span>
+              <input inputMode="numeric" placeholder="예: 120" value={mealForm.amount}
+                onChange={(e) => setMealForm((f) => ({ ...f, amount: e.target.value.replace(/[^0-9]/g, "") }))}
+                style={{ ...input, marginBottom: 0, flex: 1, textAlign: "right" }} />
+              <span style={{ fontSize: 13, color: "#8A8170", fontWeight: 700 }}>ml</span>
+            </div>
             <textarea placeholder="메모 (예: 잘 먹음 / 새 재료 연어 첫 도전 — 발진 없음)"
               value={mealForm.memo} onChange={(e) => setMealForm((f) => ({ ...f, memo: e.target.value }))} style={memoBox} />
             <button style={{ ...doneBtn, background: "#5C9A6B", opacity: mealForm.items.length ? 1 : 0.5 }}
@@ -904,6 +1015,40 @@ export default function App() {
               {mealForm.items.length ? `${mealForm.items.length}가지 조합 저장` : "재료를 골라주세요"}
             </button>
             <button style={{ ...doneBtn, background: "#EFEBE2", color: "#8A8170", marginTop: 8 }} onClick={() => setMealForm(null)}>취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* 수유 기록 시트 */}
+      {feedForm && (
+        <div style={overlay} onClick={() => setFeedForm(null)}>
+          <div style={sheet} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 800, fontSize: 16, textAlign: "center", marginBottom: 14, color: "#4A4438" }}>
+              {feedForm.id ? "✏️ 수유 기록 수정" : "🍼 수유·분유·물 기록"}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 12 }}>
+              {FEED_KINDS.map((k) => (
+                <button key={k} onClick={() => setFeedForm((f) => ({ ...f, kind: k }))}
+                  style={{ ...stageChip, ...(feedForm.kind === k ? stageOn : {}) }}>
+                  <span style={{ fontSize: 17 }}>{FEED_EMOJI[k]}</span>
+                  <span style={{ fontWeight: 700 }}>{k}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <input inputMode="numeric" autoFocus placeholder="양 (예: 150)" value={feedForm.amount}
+                onChange={(e) => setFeedForm((f) => ({ ...f, amount: e.target.value.replace(/[^0-9]/g, "") }))}
+                style={{ ...input, marginBottom: 0, flex: 1, fontSize: 20, fontWeight: 800, textAlign: "center" }} />
+              <span style={{ fontSize: 15, color: "#8A8170", fontWeight: 700 }}>ml</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <input type="date" value={feedForm.date} onChange={(e) => setFeedForm((f) => ({ ...f, date: e.target.value }))} style={{ ...input, marginBottom: 0, flex: 1 }} />
+              <input type="time" value={feedForm.time} onChange={(e) => setFeedForm((f) => ({ ...f, time: e.target.value }))} style={{ ...input, marginBottom: 0, flex: 1 }} />
+            </div>
+            <button style={{ ...doneBtn, background: "#5C9A6B", opacity: feedForm.amount ? 1 : 0.5 }} disabled={!feedForm.amount} onClick={saveFeed}>
+              {feedForm.amount ? `${feedForm.kind} ${feedForm.amount}ml 저장` : "양을 입력해주세요"}
+            </button>
+            <button style={{ ...doneBtn, background: "#EFEBE2", color: "#8A8170", marginTop: 8 }} onClick={() => setFeedForm(null)}>취소</button>
           </div>
         </div>
       )}
@@ -965,7 +1110,28 @@ function Stat({ n, label, c, bg }) {
   );
 }
 
+const FEED_EMOJI = { 분유: "🍼", 모유: "🤱", 물: "💧", 간식: "🍪" };
+function shiftDay(dateStr, delta) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + delta);
+  const p = (x) => String(x).padStart(2, "0");
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+}
+function StatBig({ emoji, label, val, sub }) {
+  return (
+    <div style={{ background: "#fff", border: "1px solid #ECE7DC", borderRadius: 14, padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={{ fontSize: 22 }}>{emoji}</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 11.5, color: "#8A8170", fontWeight: 600 }}>{label}</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#4A4438" }}>{val} {sub && <span style={{ fontSize: 11, color: "#B7AE9E", fontWeight: 600 }}>· {sub}</span>}</div>
+      </div>
+    </div>
+  );
+}
+
 // ── 스타일 ─────────────────────────────────────────────────
+const grid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 6 };
+const feedRow = { display: "flex", alignItems: "center", gap: 11, padding: "11px 12px", background: "#fff", border: "1px solid #ECE7DC", borderRadius: 13, marginBottom: 8 };
 const wrap = { maxWidth: 460, margin: "0 auto", padding: "26px 16px 60px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif", background: "#FBFAF6", minHeight: "100vh", color: "#4A4438" };
 const h1 = { fontSize: 21, fontWeight: 800, margin: "8px 0 2px", letterSpacing: "-0.5px" };
 const sub = { fontSize: 12.5, color: "#B7AE9E", margin: 0 };
