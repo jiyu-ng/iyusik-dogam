@@ -500,6 +500,24 @@ export default function App() {
     return { total, avg: Math.round(total / 7) };
   }, [feeds, meals]);
 
+  // 리마인드: 마지막 수유 경과 + 다음 챙길 접종
+  const lastFeed = useMemo(() => {
+    const s = feeds.filter((f) => f.date).sort((a, b) => (b.date + (b.time || "")).localeCompare(a.date + (a.time || "")));
+    if (!s[0]) return null;
+    const f = s[0];
+    const dt = new Date(`${f.date}T${(f.time || "00:00")}:00`);
+    const mins = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 60000));
+    return { feed: f, mins, text: mins < 60 ? `${mins}분 전` : `${Math.floor(mins / 60)}시간 ${mins % 60}분 전` };
+  }, [feeds]);
+  const nextVaccine = useMemo(() => {
+    for (const [period, list] of VACCINE_SEED) {
+      for (const [key, name] of list) {
+        if (!vaccines[key]?.done) return { period, name };
+      }
+    }
+    return null;
+  }, [vaccines]);
+
   // 날짜별 그룹 (날짜 최신순, 하루 안에선 아침→점심→저녁→간식 순)
   const mealsByDay = useMemo(() => {
     const groups = [];
@@ -757,6 +775,15 @@ export default function App() {
 
       {view === "vaccine" && (
         <>
+          {nextVaccine && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#E1EEF6", border: "1px solid #BBD7EA", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
+              <span style={{ fontSize: 22 }}>💉</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: "#5E86B4", fontWeight: 700 }}>다음 챙길 접종</div>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: "#4A4438" }}>{nextVaccine.period} · {nextVaccine.name}</div>
+              </div>
+            </div>
+          )}
           <div style={progressTrack}>
             <div style={{ ...progressFill, width: `${vaxTotal ? (vaxDone / vaxTotal) * 100 : 0}%`, background: "#7EA9D8" }} />
           </div>
@@ -872,6 +899,15 @@ export default function App() {
 
       {view === "feeds" && (
         <>
+          {lastFeed && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#EAF6E6", border: "1px solid #CFE7C8", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
+              <span style={{ fontSize: 22 }}>⏱️</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: "#5C9A6B", fontWeight: 700 }}>마지막 수유</div>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: "#4A4438" }}>{lastFeed.text} · {FEED_EMOJI[lastFeed.feed.kind] || "🍼"} {lastFeed.feed.kind} {lastFeed.feed.amount}ml</div>
+              </div>
+            </div>
+          )}
           <div style={statRow}>
             <Stat n={dayStats.milk} label="분유·모유(ml)" c="#5C9A6B" bg="#E4F2E1" />
             <Stat n={dayStats.water} label="물(ml)" c="#4E9AC9" bg="#E1EEF6" />
