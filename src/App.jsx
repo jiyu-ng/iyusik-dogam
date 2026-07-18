@@ -465,10 +465,40 @@ export default function App() {
     const total = milk + water + snackFeed + mealMl;
     return { fd, md, milk, water, snackFeed, mealMl, total, feedCount: fd.length, mealCount: md.length };
   }, [feeds, meals, statDate]);
-  const feedsToday = useMemo(() => {
-    const t = statDate;
-    return [...feeds].filter((f) => f.date).sort((a, b) => (b.date + (b.time || "")).localeCompare(a.date + (a.time || "")));
-  }, [feeds, statDate]);
+  // 최근 2주 재료별 빈도 + 영양군 밸런스 + 오래 안 먹은 통과재료
+  const nutritionStats = useMemo(() => {
+    const nameCat = {}; allItems.forEach((i) => { nameCat[i.name] = i.cat; });
+    const groupOf = (name) => {
+      const c = nameCat[name] || "";
+      if (c.includes("곡물")) return "탄수화물";
+      if (c.includes("단백질") || c.includes("해산물") || c.includes("견과")) return "단백질";
+      if (c.includes("채소")) return "채소";
+      if (c.includes("과일")) return "과일";
+      return "기타";
+    };
+    const cutoff = shiftDay(todayStr(), -13);
+    const mealDay = (m) => m.date || (m.ts || "").slice(0, 10);
+    const freq = {}; const groups = { 탄수화물: 0, 단백질: 0, 채소: 0, 과일: 0, 기타: 0 };
+    const lastSeen = {};
+    meals.forEach((m) => { const d = mealDay(m); (m.items || []).forEach((n) => { if (!lastSeen[n] || d > lastSeen[n]) lastSeen[n] = d; }); });
+    meals.filter((m) => mealDay(m) >= cutoff).forEach((m) => (m.items || []).forEach((n) => { freq[n] = (freq[n] || 0) + 1; groups[groupOf(n)]++; }));
+    const topFreq = Object.entries(freq).map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n).slice(0, 12);
+    const groupTotal = Object.values(groups).reduce((a, b) => a + b, 0) || 1;
+    const weekAgo = shiftDay(todayStr(), -7);
+    const stale = safeNames.filter((n) => !lastSeen[n] || lastSeen[n] < weekAgo)
+      .map((n) => ({ name: n, last: lastSeen[n] || null }))
+      .sort((a, b) => (a.last || "0").localeCompare(b.last || "0")).slice(0, 15);
+    return { topFreq, groups, groupTotal, stale };
+  }, [meals, allItems, safeNames]);
+
+  // 최근 7일 총 섭취량·일평균
+  const weekStats = useMemo(() => {
+    const cutoff = shiftDay(todayStr(), -6);
+    let total = 0;
+    feeds.forEach((f) => { if (f.date >= cutoff) total += f.amount || 0; });
+    meals.forEach((m) => { const d = m.date || (m.ts || "").slice(0, 10); if (d >= cutoff) total += m.amount || 0; });
+    return { total, avg: Math.round(total / 7) };
+  }, [feeds, meals]);
 
   // 날짜별 그룹 (날짜 최신순, 하루 안에선 아침→점심→저녁→간식 순)
   const mealsByDay = useMemo(() => {
@@ -894,7 +924,61 @@ export default function App() {
             <StatBig emoji="🍪" label="간식" val={`${dayStats.snackFeed}ml`} />
           </div>
 
-          <p style={tip}>📊 수유(🍼)랑 식사기록(📖)에 ml를 넣으면 여기 하루 총량이 자동으로 쌓여요. 재료별 빈도·영양 밸런스 통계는 곧 추가할게요!</p>
+          <section style={{ background: "#fff", border: "1px solid #ECE7DC", borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+            <h2 style={{ ...h2, marginBottom: 4 }}>📅 최근 7일</h2>
+            <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center", marginTop: 8 }}>
+              <div><div style={{ fontSize: 20, fontWeight: 800, color: "#5C9A6B" }}>{weekStats.total.toLocaleString()}ml</div><div style={{ fontSize: 11, color: "#B7AE9E" }}>총 섭취량</div></div>
+              <div><div style={{ fontSize: 20, fontWeight: 800, color: "#4A4438" }}>{weekStats.avg.toLocaleString()}ml</div><div style={{ fontSize: 11, color: "#B7AE9E" }}>하루 평균</div></div>
+            </div>
+          </section>
+
+          <section style={{ background: "#fff", border: "1px solid #ECE7DC", borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+            <h2 style={{ ...h2, marginBottom: 2 }}>🥗 영양군 밸런스 <span style={{ fontSize: 11, color: "#B7AE9E", fontWeight: 500 }}>최근 2주 이유식</span></h2>
+            {nutritionStats.groupTotal <= 1 && Object.values(nutritionStats.groups).every((v) => v === 0) ? (
+              <p style={{ fontSize: 12.5, color: "#B7AE9E", margin: "8px 0 0" }}>식사기록이 쌓이면 영양 밸런스가 보여요.</p>
+            ) : (
+              [["탄수화물", "#E0B64A"], ["단백질", "#D0876A"], ["채소", "#5C9A6B"], ["과일", "#C77DD6"], ["기타", "#9AA0A6"]].map(([g, col]) => (
+                <div key={g} style={{ marginTop: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 3 }}>
+                    <span>{g}</span><span style={{ color: "#8A8170", fontWeight: 700 }}>{nutritionStats.groups[g]}회</span>
+                  </div>
+                  <div style={{ height: 8, background: "#F2ECE1", borderRadius: 999, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(nutritionStats.groups[g] / nutritionStats.groupTotal) * 100}%`, background: col, borderRadius: 999 }} />
+                  </div>
+                </div>
+              ))
+            )}
+          </section>
+
+          <section style={{ background: "#fff", border: "1px solid #ECE7DC", borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+            <h2 style={{ ...h2, marginBottom: 8 }}>🔢 자주 먹은 재료 <span style={{ fontSize: 11, color: "#B7AE9E", fontWeight: 500 }}>최근 2주</span></h2>
+            {nutritionStats.topFreq.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: "#B7AE9E", margin: 0 }}>아직 식사기록이 없어요.</p>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {nutritionStats.topFreq.map((f) => (
+                  <span key={f.name} style={{ fontSize: 12.5, fontWeight: 600, padding: "5px 10px", borderRadius: 999, background: "#F4F0E8", color: "#5A5346" }}>{f.name} <b style={{ color: "#5C9A6B" }}>{f.n}</b></span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section style={{ background: "#FFF8F0", border: "1px solid #F0E2CE", borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+            <h2 style={{ ...h2, marginBottom: 6 }}>⏰ 오래 안 먹은 통과 재료 <span style={{ fontSize: 11, color: "#C9982E", fontWeight: 500 }}>골고루 순환용</span></h2>
+            {nutritionStats.stale.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: "#B7AE9E", margin: 0 }}>최근 1주 안에 통과 재료를 골고루 잘 먹였어요! 👏</p>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {nutritionStats.stale.map((s) => (
+                  <span key={s.name} style={{ fontSize: 12.5, fontWeight: 600, padding: "5px 10px", borderRadius: 999, background: "#fff", border: "1px solid #F0E2CE", color: "#8A7B5E" }}>
+                    {s.name}{s.last ? ` · ${daysAgo(s.last)}일째` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <p style={tip}>📊 수유(🍼)·식사기록(📖)에 ml를 넣을수록 통계가 정확해져요. "오래 안 먹은 재료"는 통과한 재료 중 1주 이상 안 준 걸 알려줘서 골고루 먹이기 좋아요 🌱</p>
         </>
       )}
 
@@ -1116,6 +1200,12 @@ function shiftDay(dateStr, delta) {
   const dt = new Date(y, m - 1, d + delta);
   const p = (x) => String(x).padStart(2, "0");
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+}
+function daysAgo(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const then = new Date(y, m - 1, d);
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((now - then) / 86400000));
 }
 function StatBig({ emoji, label, val, sub }) {
   return (
