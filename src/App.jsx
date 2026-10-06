@@ -157,16 +157,13 @@ function fmtDay(d) {
   return `${dt.getMonth() + 1}월 ${dt.getDate()}일 (${DOW[dt.getDay()]})`;
 }
 
-// 생일(YYYY-MM-DD) → 월령/일수 + 추정 단계
-function computeAge(birthStr) {
-  if (!birthStr) return null;
-  const b = new Date(birthStr);
-  if (isNaN(b.getTime())) return null;
-  const now = new Date();
-  const totalDays = Math.floor((now - b) / 86400000);
+// 월령/일수 → 표시 문구 + 추정 단계
+// 🔴 생일을 받아서 계산하지 않는다. 서버(baby_age RPC)가 월령·일수만 준다 —
+//    예전엔 생일을 그대로 읽어왔고, 그 행은 공개 키로 누구나 읽을 수 있었다.
+//    월·일 경계 규칙은 서버 함수와 같다(일이 안 지났으면 월 -1, 기준일은 KST).
+function ageFrom(months, totalDays) {
+  if (typeof months !== "number" || typeof totalDays !== "number") return null;
   if (totalDays < 0) return null;
-  let months = (now.getFullYear() - b.getFullYear()) * 12 + (now.getMonth() - b.getMonth());
-  if (now.getDate() < b.getDate()) months--;
   let stage = "late";
   if (months < 6) stage = "early";
   else if (months < 9) stage = "mid";
@@ -281,11 +278,10 @@ export default function App() {
         console.error("cloud load failed", e);
       }
 
-      // 아기 생일 → 월령 계산 (생일은 공개 소스에 안 박고 클라우드 _settings 행에 보관)
+      // 월령 조회 — 생일은 가져오지 않는다(서버가 월령·일수만 돌려준다).
       try {
-        const { data: setg } = await supabase
-          .from("tracker_state").select("data").eq("id", "_settings").maybeSingle();
-        const age = computeAge(setg?.data?.baby_birth);
+        const { data: a } = await supabase.rpc("baby_age");
+        const age = ageFrom(a?.months, a?.total_days);
         if (age) { setBabyAge(age.text); setStage(age.stage); }
       } catch (e) {}
 
